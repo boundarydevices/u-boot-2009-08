@@ -216,7 +216,6 @@
  * I2C Configs
  */
 #ifdef CONFIG_CMD_I2C
-	#define CONFIG_HARD_I2C         1
 	#define CONFIG_I2C_MXC          1
 	#define CONFIG_SYS_I2C_PORT             I2C3_BASE_ADDR
 	#define CONFIG_SYS_I2C_SPEED            100000
