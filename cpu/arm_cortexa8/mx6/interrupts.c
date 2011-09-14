@@ -36,4 +36,5 @@ int interrupt_init(void)
 void reset_cpu(ulong addr)
 {
 	__REG16(WDOG1_BASE_ADDR) = 4;
+	udelay(50000);			/* wait 50 ms */
 }
