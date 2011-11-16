@@ -26,6 +26,7 @@
 #include <asm/arch/mx6_pins.h>
 #include <asm/arch/iomux-v3.h>
 #include <asm/errno.h>
+#include <asm/gpio.h>
 #include <miiphy.h>
 #if CONFIG_I2C_MXC
 #include <i2c.h>
@@ -63,24 +64,12 @@
 #include <jffs2/load_kernel.h>
 #endif
 
+#define IMX_GPIO_NR(port, offset) (((port - 1) << 5) | offset)
+
 DECLARE_GLOBAL_DATA_PTR;
 
 static u32 system_rev;
 static enum boot_device boot_dev;
-
-static void set_gpio_output_val(unsigned base, unsigned mask, unsigned val)
-{
-	unsigned reg = readl(base + GPIO_DR);
-	if (val & 1)
-		reg |= mask;	/* set high */
-	else
-		reg &= ~mask;	/* clear low */
-	writel(reg, base + GPIO_DR);
-
-	reg = readl(base + GPIO_GDIR);
-	reg |= mask;		/* configure GPIO line as output */
-	writel(reg, base + GPIO_GDIR);
-}
 
 static inline void setup_boot_device(void)
 {
@@ -604,19 +593,18 @@ void enet_board_init(void)
 			NEW_PAD_CTRL(MX6Q_PAD_EIM_D23__GPIO_3_23, 0x48);
 
 	/* phy reset: gpio3-23 */
-	set_gpio_output_val(GPIO3_BASE_ADDR, (1 << 23), 0);
-	set_gpio_output_val(GPIO6_BASE_ADDR, (1 << 30),
-			    (CONFIG_FEC0_PHY_ADDR >> 2));
-	set_gpio_output_val(GPIO6_BASE_ADDR, (1 << 25), 1);
-	set_gpio_output_val(GPIO6_BASE_ADDR, (1 << 27), 1);
-	set_gpio_output_val(GPIO6_BASE_ADDR, (1 << 28), 1);
-	set_gpio_output_val(GPIO6_BASE_ADDR, (1 << 29), 1);
+	gpio_direction_output(IMX_GPIO_NR(3, 23), 0);
+	gpio_direction_output(IMX_GPIO_NR(6, 30), (CONFIG_FEC0_PHY_ADDR >> 2));
+	gpio_direction_output(IMX_GPIO_NR(6, 25), 1);
+	gpio_direction_output(IMX_GPIO_NR(6, 27), 1);
+	gpio_direction_output(IMX_GPIO_NR(6, 28), 1);
+	gpio_direction_output(IMX_GPIO_NR(6, 29), 1);
 	mxc_iomux_v3_setup_multiple_pads(enet_pads, ARRAY_SIZE(enet_pads));
 	mxc_iomux_v3_setup_pad(enet_reset);
-	set_gpio_output_val(GPIO6_BASE_ADDR, (1 << 24), 1);
+	gpio_direction_output(IMX_GPIO_NR(6, 24), 1);
 
 	udelay(500);
-	set_gpio_output_val(GPIO3_BASE_ADDR, (1 << 23), 1);
+	gpio_direction_output(IMX_GPIO_NR(3, 23), 1);
 	mxc_iomux_v3_setup_multiple_pads(enet_pads_final,
 					 ARRAY_SIZE(enet_pads_final));
 }
