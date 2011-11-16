@@ -25,6 +25,7 @@
 #include <asm/arch/mx6.h>
 #include <asm/arch/mx6_pins.h>
 #include <asm/arch/iomux-v3.h>
+#include <asm/gpio.h>
 #include <asm/errno.h>
 #include <asm/imx-common/boot_mode.h>
 #include <miiphy.h>
@@ -69,65 +70,6 @@
 #define GPIO_NUMBER(port, offset) (((port - 1) << 5) | offset)
 
 DECLARE_GLOBAL_DATA_PTR;
-
-unsigned gp_base[] = {GPIO1_BASE_ADDR, GPIO2_BASE_ADDR, GPIO3_BASE_ADDR,
-	GPIO4_BASE_ADDR, GPIO5_BASE_ADDR, GPIO6_BASE_ADDR, GPIO7_BASE_ADDR};
-
-void gpio_set_input(unsigned gp)
-{
-	unsigned reg, base;
-	unsigned mask = (1 << (gp & 0x1f));
-	if ((gp >> 5) >= ARRAY_SIZE(gp_base))
-		return;
-	base = gp_base[gp >> 5];
-	reg = readl(base + GPIO_GDIR);
-	reg &= ~mask;		/* configure GPIO line as input */
-	writel(reg, base + GPIO_GDIR);
-}
-
-unsigned gpio_get_value(unsigned gp)
-{
-	unsigned reg, base;
-	if ((gp >> 5) >= ARRAY_SIZE(gp_base))
-		return 0;
-	base = gp_base[gp >> 5];
-	reg = readl(base + GPIO_PSR);
-	return (reg >> (gp & 0x1f)) & 1;
-}
-
-void gpio_set_value(unsigned gp, unsigned val)
-{
-	unsigned reg, base;
-	unsigned mask = 1 << (gp & 0x1f);
-	if ((gp >> 5) >= ARRAY_SIZE(gp_base))
-		return;
-	base = gp_base[gp >> 5];
-	reg = readl(base + GPIO_DR);
-	if (val & 1)
-		reg |= mask;	/* set high */
-	else
-		reg &= ~mask;	/* clear low */
-	writel(reg, base + GPIO_DR);
-}
-
-void gpio_set_output_val(unsigned gp, unsigned val)
-{
-	unsigned reg, base;
-	unsigned mask = (1 << (gp & 0x1f));
-	if ((gp >> 5) >= ARRAY_SIZE(gp_base))
-		return;
-	base = gp_base[gp >> 5];
-	reg = readl(base + GPIO_DR);
-	if (val & 1)
-		reg |= mask;	/* set high */
-	else
-		reg &= ~mask;	/* clear low */
-	writel(reg, base + GPIO_DR);
-
-	reg = readl(base + GPIO_GDIR);
-	reg |= mask;		/* configure GPIO line as output */
-	writel(reg, base + GPIO_GDIR);
-}
 
 static u32 system_rev;
 static enum boot_device boot_dev;
@@ -468,9 +410,9 @@ int board_init(void)
 	mxc_iomux_v3_init((void *)IOMUXC_BASE_ADDR);
 	setup_boot_device();
 	/* Disable wl1271 For Nitrogen6w */
-	gpio_set_input(GPIO_NUMBER(6, 14));
-	gpio_set_output_val(GPIO_NUMBER(6, 15), 0);
-	gpio_set_output_val(GPIO_NUMBER(6, 16), 0);
+	gpio_direction_input(GPIO_NUMBER(6, 14));
+	gpio_direction_output(GPIO_NUMBER(6, 15), 0);
+	gpio_direction_output(GPIO_NUMBER(6, 16), 0);
 	mxc_iomux_v3_setup_multiple_pads(wl12xx_pads, ARRAY_SIZE(wl12xx_pads));
 	clk_config_cko1(8000000);
 
@@ -741,22 +683,22 @@ int mx6_rgmii_rework(char *phydev, int phy_addr)
 void enet_board_init(void)
 {
 	/* Sabrelite phy reset: gpio3-23 */
-	gpio_set_output_val(GPIO_NUMBER(3, 23), 0);
+	gpio_direction_output(GPIO_NUMBER(3, 23), 0);
 	/* Nitrogen6w phy reset: gpio1-27 */
-	gpio_set_output_val(GPIO_NUMBER(1, 27), 0);
-	gpio_set_output_val(GPIO_NUMBER(6, 30), (CONFIG_FEC0_PHY_ADDR >> 2));
-	gpio_set_output_val(GPIO_NUMBER(6, 25), 1);
-	gpio_set_output_val(GPIO_NUMBER(6, 27), 1);
-	gpio_set_output_val(GPIO_NUMBER(6, 28), 1);
-	gpio_set_output_val(GPIO_NUMBER(6, 29), 1);
+	gpio_direction_output(GPIO_NUMBER(1, 27), 0);
+	gpio_direction_output(GPIO_NUMBER(6, 30), (CONFIG_FEC0_PHY_ADDR >> 2));
+	gpio_direction_output(GPIO_NUMBER(6, 25), 1);
+	gpio_direction_output(GPIO_NUMBER(6, 27), 1);
+	gpio_direction_output(GPIO_NUMBER(6, 28), 1);
+	gpio_direction_output(GPIO_NUMBER(6, 29), 1);
 	mxc_iomux_v3_setup_multiple_pads(enet_pads, ARRAY_SIZE(enet_pads));
-	gpio_set_output_val(GPIO_NUMBER(6, 24), 1);
+	gpio_direction_output(GPIO_NUMBER(6, 24), 1);
 
 	udelay(500);
 	/* Sabrelite phy reset: gpio3-23 */
-	gpio_set_output_val(GPIO_NUMBER(3, 23), 1);
+	gpio_direction_output(GPIO_NUMBER(3, 23), 1);
 	/* Nitrogen6w phy reset: gpio1-27 */
-	gpio_set_output_val(GPIO_NUMBER(1, 27), 1);
+	gpio_direction_output(GPIO_NUMBER(1, 27), 1);
 	mxc_iomux_v3_setup_multiple_pads(enet_pads_final,
 					 ARRAY_SIZE(enet_pads_final));
 }
