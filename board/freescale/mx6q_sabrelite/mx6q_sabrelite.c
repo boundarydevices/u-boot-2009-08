@@ -412,6 +412,13 @@ u32 get_ddr_delay(struct fsl_esdhc_cfg *cfg)
 
 #endif
 
+/* Disable wl1271 for Nitrogen6w */
+iomux_v3_cfg_t wl12xx_pads[] = {
+	NEW_PAD_CTRL(MX6Q_PAD_NANDF_CS1__GPIO_6_14, 0x1b0b0),
+	NEW_PAD_CTRL(MX6Q_PAD_NANDF_CS2__GPIO_6_15, 0x000b0),
+	NEW_PAD_CTRL(MX6Q_PAD_NANDF_CS3__GPIO_6_16, 0x000b0),
+};
+
 int board_init(void)
 {
 #ifdef CONFIG_MFG
@@ -423,6 +430,11 @@ int board_init(void)
 #endif
 	mxc_iomux_v3_init((void *)IOMUXC_BASE_ADDR);
 	setup_boot_device();
+	/* Disable wl1271 For Nitrogen6w */
+	gpio_direction_input(IMX_GPIO_NR(6, 14));
+	gpio_direction_output(IMX_GPIO_NR(6, 15), 0);
+	gpio_direction_output(IMX_GPIO_NR(6, 16), 0);
+	mxc_iomux_v3_setup_multiple_pads(wl12xx_pads, ARRAY_SIZE(wl12xx_pads));
 
 	/* board id for linux */
 	gd->bd->bi_arch_number = MACH_TYPE_MX6Q_SABRELITE;
@@ -531,6 +543,8 @@ iomux_v3_cfg_t enet_pads[] = {
 	MX6Q_PAD_GPIO_0__CCM_CLKO,
 	MX6Q_PAD_GPIO_3__CCM_CLKO2,
 	MX6Q_PAD_ENET_REF_CLK__ENET_TX_CLK,
+	NEW_PAD_CTRL(MX6Q_PAD_EIM_D23__GPIO_3_23, 0x48),	/* Phy Reset For Sabrelite */
+	NEW_PAD_CTRL(MX6Q_PAD_ENET_RXD0__GPIO_1_27, 0x48),	/* Phy Reset For Nitrogen6w */
 };
 
 iomux_v3_cfg_t enet_pads_final[] = {
@@ -589,22 +603,23 @@ int mx6_rgmii_rework(char *devname, int phy_addr)
 
 void enet_board_init(void)
 {
-	iomux_v3_cfg_t enet_reset =
-			NEW_PAD_CTRL(MX6Q_PAD_EIM_D23__GPIO_3_23, 0x48);
-
-	/* phy reset: gpio3-23 */
+	/* Sabrelite phy reset: gpio3-23 */
 	gpio_direction_output(IMX_GPIO_NR(3, 23), 0);
+	/* Nitrogen6w phy reset: gpio1-27 */
+	gpio_direction_output(IMX_GPIO_NR(1, 27), 0);
 	gpio_direction_output(IMX_GPIO_NR(6, 30), (CONFIG_FEC0_PHY_ADDR >> 2));
 	gpio_direction_output(IMX_GPIO_NR(6, 25), 1);
 	gpio_direction_output(IMX_GPIO_NR(6, 27), 1);
 	gpio_direction_output(IMX_GPIO_NR(6, 28), 1);
 	gpio_direction_output(IMX_GPIO_NR(6, 29), 1);
 	mxc_iomux_v3_setup_multiple_pads(enet_pads, ARRAY_SIZE(enet_pads));
-	mxc_iomux_v3_setup_pad(enet_reset);
 	gpio_direction_output(IMX_GPIO_NR(6, 24), 1);
 
 	udelay(500);
+	/* Sabrelite phy reset: gpio3-23 */
 	gpio_direction_output(IMX_GPIO_NR(3, 23), 1);
+	/* Nitrogen6w phy reset: gpio1-27 */
+	gpio_direction_output(IMX_GPIO_NR(1, 27), 1);
 	mxc_iomux_v3_setup_multiple_pads(enet_pads_final,
 					 ARRAY_SIZE(enet_pads_final));
 }
