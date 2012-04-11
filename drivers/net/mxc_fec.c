@@ -36,6 +36,7 @@
 #include <net.h>
 #include <miiphy.h>
 #include <linux/types.h>
+#include <linux/mii.h>
 #include <asm/io.h>
 
 #undef	ET_DEBUG
@@ -867,6 +868,42 @@ void dbgFecRegs(struct eth_device *dev)
 }
 #endif
 
+int check_phy_addr(volatile fec_t *fecp, int addr, unsigned mii_reg)
+{
+	unsigned short val = 0xffff;
+	int ret = __fec_mii_read(fecp, addr, mii_reg, &val);
+	if (ret < 0) {
+		printf("__fec_mii_read error\n");
+		return -1;
+	}
+	if (val != 0xffff) {
+		printf("Found phy at %d\n", addr);
+		return addr;
+	}
+	return -1;
+}
+
+int get_phy_addr(volatile fec_t *fecp, unsigned phy_address_mask)
+{
+	unsigned mii_reg = MII_PHYSID1;
+	while (mii_reg <= MII_PHYSID2) {
+		unsigned mask = phy_address_mask;
+		int addr = 0;
+		while (mask) {
+			if (mask & 1) {
+				int ret = check_phy_addr(fecp, addr, mii_reg);
+				if (ret >= 0)
+					return addr;
+			}
+			mask >>= 1;
+			addr++;
+		}
+		mii_reg++;
+	}
+	printf("phy not found\n");
+	return -1;
+}
+
 static void fec_mii_phy_init(struct eth_device *dev)
 {
 	struct fec_info_s *info = dev->priv;
@@ -874,10 +911,27 @@ static void fec_mii_phy_init(struct eth_device *dev)
 
 	fec_reset(dev);
 	fec_localhw_setup(fecp);
-#if defined (CONFIG_CMD_MII) || defined (CONFIG_MII) || \
-	defined (CONFIG_DISCOVER_PHY)
+#if defined(CONFIG_CMD_MII) || defined(CONFIG_MII) || defined(CONFIG_DISCOVER_PHY)
 	mxc_fec_mii_init(fecp);
+#ifdef CONFIG_DISCOVER_PHY
+	if (info->phy_addr < 0 || info->phy_addr > 0x1F)
+		info->phy_addr = mxc_fec_mii_discover_phy(dev);
+#endif
+#ifdef CONFIG_FEC_MXC_PHYADDR_MASK
+	{
+		int ret = check_phy_addr(fecp, info->phy_addr,  MII_PHYSID1);
+		if (ret < 0)
+			ret = get_phy_addr(fecp, CONFIG_FEC_MXC_PHYADDR_MASK);
+		if (ret >= 0)
+			info->phy_addr = ret;
+	}
+#endif
+#if defined(CONFIG_MX6Q) || defined(CONFIG_MX6DL)
+	mx6_rgmii_rework(dev->name, info->phy_addr);
+#endif
 	mxc_fec_phy_powerup(dev->name, info->phy_addr);
+	mxc_get_phy_ouid(dev->name, info->phy_addr);
+	setFecDuplexSpeed(fecp, (uchar)info->phy_addr, info->dup_spd);
 #endif
 
 }
@@ -891,23 +945,6 @@ int fec_init(struct eth_device *dev, bd_t *bd)
 
 	fec_mii_phy_init(dev);
 
-#if defined(CONFIG_CMD_MII) || defined(CONFIG_MII) || \
-	defined(CONFIG_DISCOVER_PHY)
-#ifdef CONFIG_DISCOVER_PHY
-	if (info->phy_addr < 0 || info->phy_addr > 0x1F)
-		info->phy_addr = mxc_fec_mii_discover_phy(dev);
-#endif
-#if defined(CONFIG_MX6Q) || defined(CONFIG_MX6DL)
-	mx6_rgmii_rework(dev->name, info->phy_addr);
-#endif
-	mxc_get_phy_ouid(dev->name, info->phy_addr);
-	setFecDuplexSpeed(fecp, (uchar)info->phy_addr, info->dup_spd);
-#else
-#ifndef CONFIG_DISCOVER_PHY
-	setFecDuplexSpeed(fecp, (uchar)info->phy_addr,
-				(FECDUPLEX << 16) | FECSPEED);
-#endif                         /* ifndef CONFIG_SYS_DISCOVER_PHY */
-#endif                         /* CONFIG_CMD_MII || CONFIG_MII */
 
 	/* We use strictly polling mode only */
 	fecp->eimr = 0;
