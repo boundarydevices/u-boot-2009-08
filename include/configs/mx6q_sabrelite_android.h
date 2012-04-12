@@ -145,10 +145,35 @@
 
 #define CONFIG_INITRD_TAG
 
-#define	CONFIG_EXTRA_ENV_SETTINGS					\
-		"netdev=eth0\0"						\
-		"ethprime=FEC0\0"					\
-		"bootcmd=booti mmc1\0"
+#define	CONFIG_EXTRA_ENV_SETTINGS \
+	"netdev=eth0\0" \
+	"ethprime=FEC0\0" \
+	"bootargs_base=setenv bootargs console=ttymxc1,115200 " \
+		"video=mxcfb0:dev=ldb,LDB-XGA,if=RGB666 " \
+		"video=mxcfb0:dev=hdmi,1920x1080M@60,if=RGB24\0" \
+	"bootargs_nfs=setenv bootargs ${bootargs} root=/dev/nfs " \
+		"ip=dhcp nfsroot=${serverip}:${nfsroot},v3,tcp rw rootwait " \
+		"enable_wait_mode=off\0" \
+	"bootcmd_net=dhcp && run bootargs_base bootargs_nfs && bootm\0" \
+	"bootargs_mmc=setenv bootargs ${bootargs} " \
+		"root=/dev/mmcblk0p1 rootwait rw\0" \
+	"bootcmd_mmc=run bootargs_base bootargs_mmc && mmc dev 1 && " \
+		"mmc read ${loadaddr} 0x800 0x2000 && bootm\0" \
+	"clearenv=sf probe 1 && sf erase 0xc0000 0x2000 && " \
+		"echo restored environment to factory default\0" \
+	"upgradeu=for disk in 0 1 ; do mmc dev ${disk} ;" \
+			"for fs in fat ext2 ; do " \
+				"${fs}load mmc ${disk}:1 10008000 " \
+					"/6q_upgrade && " \
+				"source 10008000 ; " \
+			"done ; " \
+		"done\0" \
+	"bootfile=uImage\0" \
+	"nfsroot=/your/nfs/dir\0" \
+	"bootcmd=run bootcmd_mmc\0" \
+
+//	"bootcmd=booti mmc1\0"
+
 #define CONFIG_ARP_TIMEOUT	200UL
 
 /*
