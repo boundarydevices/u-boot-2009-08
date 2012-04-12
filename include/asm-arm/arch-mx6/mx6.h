@@ -746,6 +746,9 @@
 	(mx6_board_is_revb() ? "RevB" : \
 	(mx6_board_is_revc() ? "RevC" : "unknown-board")))
 
+#define HDMI_PHY_STAT0		(HDMI_ARB_BASE_ADDR+0x3004)
+#define HDMI_PHY_STAT0_HPD	0x02
+
 #ifndef __ASSEMBLER__
 
 enum boot_device {
