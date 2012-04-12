@@ -704,3 +704,15 @@ void udc_pins_setting(void)
 	mxc_iomux_set_gpr_register(1, 13, 1, 1);
 }
 #endif
+
+int do_hdmidet(cmd_tbl_t * cmdtp, int flag, int argc, char *argv[])
+{
+	u8 reg = readb(HDMI_PHY_STAT0);
+	return (HDMI_PHY_STAT0_HPD == (reg&HDMI_PHY_STAT0_HPD))
+		? 0 : 1 ;
+}
+
+U_BOOT_CMD(hdmidet, 1, 1, do_hdmidet,
+		"detect HDMI",
+		""
+);
