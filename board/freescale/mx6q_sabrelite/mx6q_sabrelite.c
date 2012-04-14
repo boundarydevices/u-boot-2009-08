@@ -417,6 +417,8 @@ iomux_v3_cfg_t wl12xx_pads[] = {
 	NEW_PAD_CTRL(MX6Q_PAD_NANDF_CS1__GPIO_6_14, 0x1b0b0),
 	NEW_PAD_CTRL(MX6Q_PAD_NANDF_CS2__GPIO_6_15, 0x000b0),
 	NEW_PAD_CTRL(MX6Q_PAD_NANDF_CS3__GPIO_6_16, 0x000b0),
+	/* CCM  */
+	NEW_PAD_CTRL(MX6Q_PAD_GPIO_0__CCM_CLKO, 0x000b0),		/* SGTL5000 sys_mclk */
 };
 
 int board_init(void)
@@ -435,6 +437,7 @@ int board_init(void)
 	gpio_direction_output(IMX_GPIO_NR(6, 15), 0);
 	gpio_direction_output(IMX_GPIO_NR(6, 16), 0);
 	mxc_iomux_v3_setup_multiple_pads(wl12xx_pads, ARRAY_SIZE(wl12xx_pads));
+	clk_config_cko1(8000000);
 
 	/* board id for linux */
 	gd->bd->bi_arch_number = MACH_TYPE_MX6Q_SABRELITE;

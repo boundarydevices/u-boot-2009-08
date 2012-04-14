@@ -38,6 +38,7 @@ enum {
 	ALL_CLK,
 };
 
+int clk_config_cko1(u32 freq);
 int clk_config(u32 ref, u32 freq, u32 clk_type);
 int clk_info(u32 clk_type);
 

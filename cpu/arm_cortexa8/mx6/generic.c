@@ -841,6 +841,26 @@ int clk_config(u32 ref, u32 freq, u32 clk_type)
 }
 #endif
 
+/*
+ * freq is the minimum frequency acceptable
+ */
+int clk_config_cko1(u32 freq)
+{
+	unsigned parent_freq = __get_ahb_clk();
+	unsigned ccm_ccosr = readl(MXC_CCM_CCOSR);
+	unsigned div = parent_freq / freq;
+	if (!div)
+		div++;
+	if (div > 8)
+		div = 8;
+#define CCOSR_CKO1_AHB_CLK	0x0b
+	ccm_ccosr &= 0xffff0000;
+	ccm_ccosr |= MXC_CCM_CCOSR_CKO1_EN | CCOSR_CKO1_AHB_CLK |
+			((div - 1) << MXC_CCM_CCOSR_CKO1_DIV_OFFSET);
+	writel(ccm_ccosr, MXC_CCM_CCOSR);
+	return 0;
+}
+
 static inline int read_cpu_temperature(void)
 {
 	unsigned int reg, tmp, temperature, i;
@@ -1067,7 +1087,7 @@ void enable_usb_phy1_clk(unsigned char enable)
 	}
 }
 
-void reset_usb_phy1()
+void reset_usb_phy1(void)
 {
 	/* Reset USBPHY module */
 	u32 temp;
