@@ -63,6 +63,7 @@
 #include <ubi_uboot.h>
 #include <jffs2/load_kernel.h>
 #endif
+#include <micrel.h>
 
 #define IMX_GPIO_NR(port, offset) (((port - 1) << 5) | offset)
 
@@ -559,18 +560,6 @@ iomux_v3_cfg_t enet_pads_final[] = {
 	MX6Q_PAD_RGMII_RX_CTL__ENET_RGMII_RX_CTL,
 };
 
-#ifdef DEBUG
-static int phy_read(char *devname, unsigned char addr, unsigned char reg,
-		    unsigned short *pdata)
-{
-	int ret = miiphy_read(devname, addr, reg, pdata);
-	if (ret)
-		printf("Error reading from %s PHY addr=%02x reg=%02x\n",
-		       devname, addr, reg);
-	return ret;
-}
-#endif
-
 static int phy_write(char *devname, unsigned char addr, unsigned char reg,
 		     unsigned short value)
 {
@@ -582,25 +571,49 @@ static int phy_write(char *devname, unsigned char addr, unsigned char reg,
 	return ret;
 }
 
-int mx6_rgmii_rework(char *devname, int phy_addr)
+static int phy_read(char *devname, unsigned char addr, unsigned char reg)
 {
+	unsigned short value = 0;
+	int ret = miiphy_read(devname, addr, reg, &value);
+	if (ret) {
+		printf("Error reading from %s PHY addr=%02x reg=%02x\n", devname,
+		       addr, reg);
+		return ret;
+	}
+	return value;
+}
+
+int board_phy_config(char *phydev, int phy_addr)
+{
+	int val = phy_read(phydev, phy_addr, PHY_PHYIDR2) & 0xfff0;
+	if (val != 0x1620) {
+		/* 0x161x - ksz9021 */
 #if 0
-	/* To advertise only 10 Mbs */
-	phy_write(devname, phy_addr, 0x4, 0x61);
-	phy_write(devname, phy_addr, 0x9, 0x0c00);
+		/* To advertise only 10 Mbs */
+		phy_write(phydev, phy_addr, 0x4, 0x61);
+		phy_write(phydev, phy_addr, 0x9, 0x0c00);
+		/* enable master mode, force phy to 100Mbps */
+		phy_write(phydev, phy_addr, 0x9, 0x1c00);
 #endif
+		/* min rx data delay */
+		ksz9021_phy_extended_write(phydev, phy_addr,
+				MII_KSZ9021_EXT_RGMII_RX_DATA_SKEW, 0x0);
+		/* min tx data delay */
+		ksz9021_phy_extended_write(phydev, phy_addr,
+				MII_KSZ9021_EXT_RGMII_TX_DATA_SKEW, 0x0);
+		/* max rx/tx clock delay, min rx/tx control */
+		ksz9021_phy_extended_write(phydev, phy_addr,
+				MII_KSZ9021_EXT_RGMII_CLOCK_SKEW, 0xf0f0);
+		ksz9021_config(phydev, phy_addr);
+	} else {
+		ksz9031_config(phydev, phy_addr);
+	}
+	return 0;
+}
 
-	/* enable master mode, force phy to 100Mbps */
-	phy_write(devname, phy_addr, 0x9, 0x1c00);
-
-	/* min rx data delay */
-	phy_write(devname, phy_addr, 0x0b, 0x8105);
-	phy_write(devname, phy_addr, 0x0c, 0x0000);
-
-	/* max rx/tx clock delay, min rx/tx control delay */
-	phy_write(devname, phy_addr, 0x0b, 0x8104);
-	phy_write(devname, phy_addr, 0x0c, 0xf0f0);
-	phy_write(devname, phy_addr, 0x0b, 0x104);
+int mx6_rgmii_rework(char *phydev, int phy_addr)
+{
+	board_phy_config(phydev, phy_addr);
 	return 0;
 }
 
