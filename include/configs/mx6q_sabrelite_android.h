@@ -157,8 +157,13 @@
 	"bootcmd_net=dhcp && run bootargs_base bootargs_nfs && bootm\0" \
 	"bootargs_mmc=setenv bootargs ${bootargs} " \
 		"root=/dev/mmcblk0p1 rootwait rw\0" \
-	"bootcmd_mmc=run bootargs_base bootargs_mmc && mmc dev 1 && " \
-		"mmc read ${loadaddr} 0x800 0x2000 && bootm\0" \
+	"bootcmd_mmc=for disk in 0 1 ; do mmc dev ${disk} ;" \
+			"for fs in fat ext2 ; do " \
+				"${fs}load mmc ${disk}:1 10008000 " \
+					"/6q_bootscript && " \
+				"source 10008000 ; " \
+			"done ; " \
+		"done\0" \
 	"clearenv=sf probe 1 && sf erase 0xc0000 0x2000 && " \
 		"echo restored environment to factory default\0" \
 	"upgradeu=for disk in 0 1 ; do mmc dev ${disk} ;" \
