@@ -239,6 +239,8 @@ static inline int __fec_mii_read(volatile fec_t *fecp, unsigned char addr,
 				 unsigned char reg, unsigned short *value)
 {
 	int waiting = FEC_MII_TIMEOUT;
+	if (!fecp->mscr)
+		mxc_fec_mii_init(fecp);
 	if (fecp->eir & FEC_EIR_MII)
 		fecp->eir = FEC_EIR_MII;
 
@@ -260,6 +262,8 @@ static inline int __fec_mii_write(volatile fec_t *fecp, unsigned char addr,
 				  unsigned char reg, unsigned short value)
 {
 	int waiting = FEC_MII_TIMEOUT;
+	if (!fecp->mscr)
+		mxc_fec_mii_init(fecp);
 	if (fecp->eir & FEC_EIR_MII)
 		fecp->eir = FEC_EIR_MII;
 
