@@ -159,6 +159,7 @@ int do_i2c_md ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	u_char	chip;
 	uint	addr, alen, length;
 	int	j, nbytes, linebytes;
+	int	ret = 0;
 
 	/* We use the last specified parameters, unless new ones are
 	 * entered.
@@ -223,9 +224,11 @@ int do_i2c_md ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 
 		linebytes = (nbytes > DISP_LINE_LEN) ? DISP_LINE_LEN : nbytes;
 
-		if (i2c_read(chip, addr, alen, linebuf, linebytes) != 0)
+		if (i2c_read(chip, addr, alen, linebuf, linebytes) != 0) {
 			puts ("Error reading the chip.\n");
-		else {
+			ret = -1;
+			break;
+		} else {
 			printf("%04x:", addr);
 			cp = linebuf;
 			for (j=0; j<linebytes; j++) {
@@ -251,7 +254,7 @@ int do_i2c_md ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	i2c_dp_last_alen   = alen;
 	i2c_dp_last_length = length;
 
-	return 0;
+	return ret;
 }
 
 
@@ -268,6 +271,7 @@ int do_i2c_mw ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	uchar	byte;
 	int	count;
 	int	j;
+	int	ret = 0;
 
 	if ((argc < 4) || (argc > 5)) {
 		cmd_usage(cmdtp);
@@ -310,8 +314,11 @@ int do_i2c_mw ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		count = 1;
 
 	while (count-- > 0) {
-		if (i2c_write(chip, addr++, alen, &byte, 1) != 0)
+		if (i2c_write(chip, addr++, alen, &byte, 1) != 0) {
 			puts ("Error writing the chip.\n");
+			ret = -1;
+			break;
+		}
 		/*
 		 * Wait for the write to complete.  The write can take
 		 * up to 10mSec (we allow a little more time).
@@ -336,7 +343,7 @@ int do_i2c_mw ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 #endif
 	}
 
-	return (0);
+	return ret;
 }
 
 /* Calculate a CRC on memory
