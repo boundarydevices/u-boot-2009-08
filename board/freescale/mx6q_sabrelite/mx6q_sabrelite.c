@@ -22,6 +22,7 @@
 
 #include <common.h>
 #include <asm/io.h>
+#include <asm/arch/iomux.h>
 #include <asm/arch/mx6.h>
 #include <asm/arch/mx6_pins.h>
 #include <asm/errno.h>
@@ -367,6 +368,33 @@ iomux_v3_cfg_t wl12xx_pads[] = {
 	NEW_PAD_CTRL(MX6Q_PAD_GPIO_0__CCM_CLKO, 0x000b0),		/* SGTL5000 sys_mclk */
 };
 
+#ifdef CONFIG_CMD_SATA
+int setup_sata(void)
+{
+	unsigned gpr;
+	struct iomuxc_base_regs *const iomuxc_regs
+		= (struct iomuxc_base_regs *) IOMUXC_BASE_ADDR;
+	int ret = enable_sata_clock();
+	if (ret)
+		return ret;
+
+	gpr = readl(&iomuxc_regs->gpr[13]);
+	gpr &= ~IOMUXC_GPR13_SATA_MASK;
+	gpr |= IOMUXC_GPR13_SATA_PHY_8_RXEQ_3P0DB |
+			IOMUXC_GPR13_SATA_PHY_7_SATA2M |
+			IOMUXC_GPR13_SATA_SPEED_3G |
+			(3 << IOMUXC_GPR13_SATA_PHY_6_SHIFT) |
+			IOMUXC_GPR13_SATA_SATA_PHY_5_SS_DISABLED |
+			IOMUXC_GPR13_SATA_SATA_PHY_4_ATTEN_9_16 |
+			IOMUXC_GPR13_SATA_PHY_3_TXBOOST_0P00_DB |
+			IOMUXC_GPR13_SATA_PHY_2_TX_1P104V |
+			IOMUXC_GPR13_SATA_PHY_1_SLOW;
+	writel(gpr, &iomuxc_regs->gpr[13]);
+
+	return 0;
+}
+#endif
+
 #ifdef CONFIG_I2C_MXC
 #define PC    (PAD_CTL_PKE | PAD_CTL_PUE |		\
 		PAD_CTL_PUS_100K_UP | PAD_CTL_SPEED_MED |	\
@@ -446,6 +474,9 @@ int board_init(void)
 	setup_i2c(0, CONFIG_SYS_I2C1_SPEED, 0x7f, &i2c_pad_info0);
 	setup_i2c(1, CONFIG_SYS_I2C2_SPEED, 0x7f, &i2c_pad_info1);
 	setup_i2c(2, CONFIG_SYS_I2C3_SPEED, 0x7f, &i2c_pad_info2);
+#endif
+#ifdef CONFIG_CMD_SATA
+	setup_sata();
 #endif
 
 	return 0;
