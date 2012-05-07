@@ -801,6 +801,16 @@ enum mxc_peri_clocks {
 
 extern unsigned int fsl_system_rev;
 
+struct iomuxc_base_regs {
+	unsigned	gpr[14];	/* 0x000 */
+	unsigned	obsrv[5];	/* 0x038 */
+	unsigned	swmux_ctl[197];	/* 0x04c */
+	unsigned	swpad_ctl[250];	/* 0x360 */
+	unsigned	swgrp[26];	/* 0x748 */
+	unsigned	daisy[104];	/* 0x7b0..94c */
+};
+
+int enable_sata_clock(void);
 int enable_i2c_clk(unsigned char enable, unsigned i2c_num);
 extern unsigned int mxc_get_clock(enum mxc_clock clk);
 extern unsigned int get_board_rev(void);
