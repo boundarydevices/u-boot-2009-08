@@ -27,6 +27,7 @@
 #include <asm/arch/mx6_pins.h>
 #include <asm/errno.h>
 #include <asm/gpio.h>
+#include <asm/imx-common/boot_mode.h>
 #include <asm/imx-common/iomux-v3.h>
 #include <asm/imx-common/mxc_i2c.h>
 #include <miiphy.h>
@@ -545,8 +546,20 @@ int check_recovery_cmd_file(void)
 }
 #endif
 
+#ifdef CONFIG_CMD_BMODE
+static const struct boot_mode board_boot_modes[] = {
+	/* 4 bit bus width */
+	{"mmc0",	MAKE_CFGVAL(0x40, 0x30, 0x00, 0x00)},
+	{"mmc1",	MAKE_CFGVAL(0x40, 0x38, 0x00, 0x00)},
+	{NULL,		0},
+};
+#endif
+
 int board_late_init(void)
 {
+#ifdef CONFIG_CMD_BMODE
+	add_board_boot_modes(board_boot_modes);
+#endif
 	return 0;
 }
 

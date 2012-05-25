@@ -29,6 +29,7 @@ LIB     = $(obj)libimx-common.a
 
 COBJS-y = iomux-v3.o
 COBJS-$(CONFIG_I2C_MXC) += i2c.o
+COBJS-$(CONFIG_CMD_BMODE) += cmd_bmode.o
 COBJS	:= $(sort $(COBJS-y))
 
 SRCS	:= $(SOBJS:.o=.S) $(COBJS:.o=.c)

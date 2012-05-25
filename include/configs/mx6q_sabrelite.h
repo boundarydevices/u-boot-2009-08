@@ -106,7 +106,8 @@
 #define CONFIG_CMD_SATA
 #undef CONFIG_CMD_IMLS
 
-#define CONFIG_CMD_IMX_DOWNLOAD_MODE
+/* Miscellaneous commands */
+#define CONFIG_CMD_BMODE
 
 #define CONFIG_BOOTDELAY 3
 

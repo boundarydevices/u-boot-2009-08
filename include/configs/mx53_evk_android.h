@@ -150,6 +150,9 @@
 #define CONFIG_CMD_SATA
 #undef CONFIG_CMD_IMLS
 
+/* Miscellaneous commands */
+#define CONFIG_CMD_BMODE
+
 #define CONFIG_BOOTDELAY	3
 
 #define CONFIG_PRIME	"FEC0"
