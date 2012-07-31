@@ -73,6 +73,17 @@ usage:
 	return 1;
 }
 
+int get_spi_flash_size(void)
+{
+	char *sf_probe[] = {"probe", "1"};
+
+	if (do_spi_flash_probe(ARRAY_SIZE(sf_probe), sf_probe))
+		return 0;
+	if (flash)
+		return flash->size;
+	return 0;
+}
+
 static int do_spi_flash_read_write(int argc, char *argv[])
 {
 	unsigned long addr;
@@ -150,7 +161,7 @@ usage:
 	return 1;
 }
 
-static int do_spi_flash(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+int do_spi_flash(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
 	const char *cmd;
 

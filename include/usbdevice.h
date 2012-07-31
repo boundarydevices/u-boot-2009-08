@@ -467,9 +467,7 @@ typedef struct urb_link {
  * function driver to inform it that data has arrived.
  */
 
-/* in linux we'd malloc this, but in u-boot we prefer static data */
-#define URB_BUF_SIZE 256
-
+#define URB_BUF_SIZE 4096 /* in linux we'd malloc this, but in u-boot we prefer static data */
 struct urb {
 
 	struct usb_endpoint_instance *endpoint;
@@ -486,7 +484,7 @@ struct urb {
 	urb_send_status_t status;
 	int data;
 
-	u16 buffer_data[URB_BUF_SIZE];	/* data received (OUT) or being sent (IN) */
+	u8 buffer_data[URB_BUF_SIZE];	/* data received (OUT) or being sent (IN) */
 };
 
 /* Endpoint configuration
@@ -504,21 +502,18 @@ struct usb_endpoint_instance {
 
 	/* receive side */
 	struct urb_link rcv;	/* received urbs */
-	struct urb_link rdy;	/* empty urbs ready to receive */
+	struct urb_link rx_free;	/* empty urbs ready to receive */
 	struct urb *rcv_urb;	/* active urb */
 	int rcv_attributes;	/* copy of bmAttributes from endpoint descriptor */
 	int rcv_packetSize;	/* maximum packet size from endpoint descriptor */
 	int rcv_transferSize;	/* maximum transfer size from function driver */
-	int rcv_queue;
 
 	/* transmit side */
-	struct urb_link tx;	/* urbs ready to transmit */
-	struct urb_link done;	/* transmitted urbs */
-	struct urb *tx_urb;	/* active urb */
+	struct urb_link tx_ready;	/* urbs ready to transmit */
+	struct urb_link tx_free;	/* transmitted urbs */
 	int tx_attributes;	/* copy of bmAttributes from endpoint descriptor */
 	int tx_packetSize;	/* maximum packet size from endpoint descriptor */
 	int tx_transferSize;	/* maximum transfer size from function driver */
-	int tx_queue;
 
 	int sent;		/* data already sent */
 	int last;		/* data sent in last packet XXX do we need this */

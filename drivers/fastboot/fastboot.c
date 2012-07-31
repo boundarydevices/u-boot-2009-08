@@ -26,14 +26,11 @@
  */
 
 #include <common.h>
-#include <config.h>
-#include <malloc.h>
 #include <fastboot.h>
-#include <usb/imx_udc.h>
-#include <asm/io.h>
-#include <usbdevice.h>
 #include <mmc.h>
 #include <sata.h>
+#include <usb/imx_udc.h>
+#include <usbdevice.h>
 
 /*
  * Defines
@@ -44,24 +41,6 @@
 #define CONFIG_USBD_IN_PKTSIZE	    0x200
 #define MAX_BUFFER_SIZE		    0x200
 
-/*
- * imx family android layout
- * mbr -  0 ~ 0x3FF byte
- * bootloader - 0x400 ~ 0xFFFFF byte
- * kernel - 0x100000 ~ 5FFFFF byte
- * uramedisk - 0x600000 ~ 0x6FFFFF  supposing 1M temporarily
- * SYSTEM partition - /dev/mmcblk0p2  or /dev/sda2
- * RECOVERY parittion - dev/mmcblk0p4 or /dev/sda4
- */
-#define ANDROID_MBR_OFFSET	    0
-#define ANDROID_MBR_SIZE	    0x200
-#define ANDROID_BOOTLOADER_OFFSET   0x400
-#define ANDROID_BOOTLOADER_SIZE	    0xFFC00
-#define ANDROID_KERNEL_OFFSET	    0x100000
-#define ANDROID_KERNEL_SIZE	    0x500000
-#define ANDROID_URAMDISK_OFFSET	    0x600000
-#define ANDROID_URAMDISK_SIZE	    0x100000
-
 #define STR_LANG_INDEX		    0x00
 #define STR_MANUFACTURER_INDEX	    0x01
 #define STR_PRODUCT_INDEX	    0x02
@@ -71,17 +50,6 @@
 #define STR_CTRL_INTERFACE_INDEX    0x06
 #define STR_COUNT		    0x07
 
-/*pentry index internally*/
-enum {
-    PTN_MBR_INDEX = 0,
-    PTN_BOOTLOADER_INDEX,
-    PTN_KERNEL_INDEX,
-    PTN_URAMDISK_INDEX,
-    PTN_SYSTEM_INDEX,
-    PTN_RECOVERY_INDEX
-};
-
-struct fastboot_device_info fastboot_devinfo;
 
 /* defined and used by gadget/ep0.c */
 extern struct usb_string_descriptor **usb_strings;
@@ -92,15 +60,15 @@ static struct usb_configuration_instance config_instance[1];
 static struct usb_interface_instance interface_instance[1];
 static struct usb_alternate_instance alternate_instance[1];
 /* one extra for control endpoint */
-static struct usb_endpoint_instance endpoint_instance[NUM_ENDPOINTS+1];
+struct usb_endpoint_instance endpoint_instance[NUM_ENDPOINTS+1];
 
 static struct cmd_fastboot_interface *fastboot_interface;
 static int fastboot_configured_flag;
-static int usb_disconnected;
+static int connected;
 
 /* Indicies, References */
 static u8 rx_endpoint;
-static u8 tx_endpoint;
+u8 tx_endpoint;
 static struct usb_string_descriptor *fastboot_string_table[STR_COUNT];
 
 /* USB Descriptor Strings */
@@ -205,15 +173,11 @@ fastboot_configuration_descriptors[1] = {
 /* Static Function Prototypes */
 static void fastboot_init_strings(void);
 static void fastboot_init_instances(void);
-static void fastboot_init_endpoints(void);
 static void fastboot_event_handler(struct usb_device_instance *device,
 				usb_device_event_t event, int data);
 static int fastboot_cdc_setup(struct usb_device_request *request,
 				struct urb *urb);
 static int fastboot_usb_configured(void);
-#ifdef CONFIG_FASTBOOT_STORAGE_EMMC_SATA
-static int fastboot_init_mmc_sata_ptable(void);
-#endif
 
 /* utility function for converting char* to wide string used by USB */
 static void str2wide(char *str, u16 * wide)
@@ -231,31 +195,13 @@ static void str2wide(char *str, u16 * wide)
 }
 
 /*
-   Get mmc control number from passed string, eg, "mmc1" mean device 1. Only
-   support "mmc0" to "mmc9" currently. It will be treated as device 0 for
-   other string.
-*/
-static int get_mmc_no(char *env_str)
-{
-	int digit = 0;
-	unsigned char a;
-
-	if (env_str && (strlen(env_str) >= 4) &&
-	    !strncmp(env_str, "mmc", 3)) {
-		a = env_str[3];
-		if (a >= '0' && a <= '9')
-			digit = a - '0';
-	}
-
-	return digit;
-}
-
-/*
  * Initialize fastboot
  */
 int fastboot_init(struct cmd_fastboot_interface *interface)
 {
-	printf("fastboot is in init......");
+	printf("fastboot is in init......\n");
+	connected = 0;
+	fastboot_configured_flag = 0;
 	fastboot_interface = interface;
 	fastboot_interface->product_name = CONFIG_FASTBOOT_PRODUCT_NAME_STR;
 	fastboot_interface->serial_no = CONFIG_FASTBOOT_SERIAL_NUM;
@@ -266,137 +212,20 @@ int fastboot_init(struct cmd_fastboot_interface *interface)
 				CONFIG_FASTBOOT_TRANSFER_BUF_SIZE;
 	fastboot_init_strings();
 	/* Basic USB initialization */
+	usb_shutdown();
 	udc_init();
 
 	fastboot_init_instances();
+#ifdef CONFIG_FASTBOOT_STORAGE_SF
+	fastboot_init_sf_ptable();
+#endif
 #ifdef CONFIG_FASTBOOT_STORAGE_EMMC_SATA
 	fastboot_init_mmc_sata_ptable();
 #endif
+	fastboot_flash_dump_ptn();
 	udc_startup_events(device_instance);
-	udc_connect();		/* Enable pullup for host detection */
-
 	return 0;
 }
-
-#ifdef CONFIG_FASTBOOT_STORAGE_EMMC_SATA
-/**
-   @mmc_dos_partition_index: the partition index in mbr.
-   @mmc_partition_index: the boot partition or user partition index,
-   not related to the partition table.
- */
-static int setup_ptable_mmc_partition(int ptable_index,
-				      int mmc_dos_partition_index,
-				      int mmc_partition_index,
-				      const char *name,
-				      block_dev_desc_t *dev_desc,
-				      fastboot_ptentry *ptable)
-{
-	disk_partition_t info;
-	strcpy(ptable[ptable_index].name, name);
-
-	if (get_partition_info(dev_desc,
-			       mmc_dos_partition_index, &info)) {
-		printf("Bad partition index:%d for partition:%s\n",
-		       mmc_dos_partition_index, name);
-		return -1;
-	} else {
-		ptable[ptable_index].start = info.start;
-		ptable[ptable_index].length = info.size;
-		ptable[ptable_index].partition_id = mmc_partition_index;
-	}
-	return 0;
-}
-
-static int fastboot_init_mmc_sata_ptable(void)
-{
-	int i, sata_device_no;
-	int boot_partition = -1, user_partition = -1;
-	/* mmc boot partition: -1 means no partition, 0 user part., 1 boot part.
-	 * default is no partition, for emmc default user part, except emmc*/
-	struct mmc *mmc;
-	block_dev_desc_t *dev_desc;
-	char *fastboot_env;
-	fastboot_ptentry ptable[PTN_RECOVERY_INDEX + 1];
-
-	fastboot_env = getenv("fastboot_dev");
-	/* sata case in env */
-	if (fastboot_env && !strcmp(fastboot_env, "sata")) {
-		fastboot_devinfo.type = DEV_SATA;
-#ifdef CONFIG_CMD_SATA
-		puts("flash target is SATA\n");
-		if (sata_initialize())
-			return -1;
-		sata_device_no = CONFIG_FASTBOOT_SATA_NO;
-		if (sata_device_no >= CONFIG_SYS_SATA_MAX_DEVICE) {
-			printf("Unknown SATA(%d) device for fastboot\n",
-				sata_device_no);
-			return -1;
-		}
-		dev_desc = sata_get_dev(sata_device_no);
-#else
-		puts("SATA isn't buildin\n");
-		return -1;
-#endif
-	} else {
-		int mmc_no = 0;
-
-		mmc_no = get_mmc_no(fastboot_env);
-
-		fastboot_devinfo.type = DEV_MMC;
-		fastboot_devinfo.dev_id = mmc_no;
-
-		printf("flash target is MMC:%d\n", mmc_no);
-		mmc = find_mmc_device(mmc_no);
-		if (mmc && mmc_init(mmc))
-			printf("MMC card init failed!\n");
-
-		dev_desc = get_dev("mmc", mmc_no);
-		if (NULL == dev_desc) {
-			printf("** Block device MMC %d not supported\n",
-				mmc_no);
-			return -1;
-		}
-
-		/* multiple boot paritions for eMMC 4.3 later */
-		if (mmc->part_config != MMCPART_NOAVAILABLE) {
-			boot_partition = 1;
-			user_partition = 0;
-		}
-	}
-
-	memset((char *)ptable, 0,
-		    sizeof(fastboot_ptentry) * (PTN_RECOVERY_INDEX + 1));
-	/* MBR */
-	strcpy(ptable[PTN_MBR_INDEX].name, "mbr");
-	ptable[PTN_MBR_INDEX].start = ANDROID_MBR_OFFSET / dev_desc->blksz;
-	ptable[PTN_MBR_INDEX].length = ANDROID_MBR_SIZE / dev_desc->blksz;
-	ptable[PTN_MBR_INDEX].partition_id = user_partition;
-	/* Bootloader */
-	strcpy(ptable[PTN_BOOTLOADER_INDEX].name, "bootloader");
-	ptable[PTN_BOOTLOADER_INDEX].start =
-				ANDROID_BOOTLOADER_OFFSET / dev_desc->blksz;
-	ptable[PTN_BOOTLOADER_INDEX].length =
-				 ANDROID_BOOTLOADER_SIZE / dev_desc->blksz;
-	ptable[PTN_BOOTLOADER_INDEX].partition_id = boot_partition;
-
-	setup_ptable_mmc_partition(PTN_KERNEL_INDEX,
-				   CONFIG_ANDROID_BOOT_PARTITION_MMC,
-				   user_partition, "boot", dev_desc, ptable);
-	setup_ptable_mmc_partition(PTN_RECOVERY_INDEX,
-				   CONFIG_ANDROID_RECOVERY_PARTITION_MMC,
-				   user_partition,
-				   "recovery", dev_desc, ptable);
-	setup_ptable_mmc_partition(PTN_SYSTEM_INDEX,
-				   CONFIG_ANDROID_SYSTEM_PARTITION_MMC,
-				   user_partition,
-				   "system", dev_desc, ptable);
-
-	for (i = 0; i <= PTN_RECOVERY_INDEX; i++)
-		fastboot_flash_add_ptn(&ptable[i]);
-
-	return 0;
-}
-#endif
 
 static void fastboot_init_strings(void)
 {
@@ -451,8 +280,7 @@ static void fastboot_init_instances(void)
 
 	/* Configuration Descriptor */
 	configuration_descriptor =
-		(struct usb_configuration_descriptor *)
-		&fastboot_configuration_descriptors;
+		&fastboot_configuration_descriptors[0].configuration_desc;
 
 	/* initialize device instance */
 	memset(device_instance, 0, sizeof(struct usb_device_instance));
@@ -469,7 +297,7 @@ static void fastboot_init_instances(void)
 	bus_instance->device = device_instance;
 	bus_instance->endpoint_array = endpoint_instance;
 	bus_instance->max_endpoints = NUM_ENDPOINTS + 1;
-	bus_instance->maxpacketsize = 512;
+	bus_instance->maxpacketsize = 64;
 	bus_instance->serial_number_str = CONFIG_FASTBOOT_SERIAL_NUM;
 
 	/* configuration instance */
@@ -525,15 +353,12 @@ static void fastboot_init_instances(void)
 			ep_descriptor_ptrs[i - 1]->bmAttributes;
 
 		urb_link_init(&endpoint_instance[i].rcv);
-		urb_link_init(&endpoint_instance[i].rdy);
-		urb_link_init(&endpoint_instance[i].tx);
-		urb_link_init(&endpoint_instance[i].done);
+		urb_link_init(&endpoint_instance[i].rx_free);
+		urb_link_init(&endpoint_instance[i].tx_ready);
+		urb_link_init(&endpoint_instance[i].tx_free);
 
 		if (endpoint_instance[i].endpoint_address & USB_DIR_IN) {
 			tx_endpoint = i;
-			endpoint_instance[i].tx_urb =
-				usbd_alloc_urb(device_instance,
-						&endpoint_instance[i]);
 		} else {
 			rx_endpoint = i;
 			endpoint_instance[i].rcv_urb =
@@ -548,88 +373,86 @@ static void fastboot_init_endpoints(void)
 	int i;
 
 	bus_instance->max_endpoints = NUM_ENDPOINTS + 1;
-	for (i = 1; i <= NUM_ENDPOINTS; i++)
-		udc_setup_ep(device_instance, i, &endpoint_instance[i]);
+
+	for (i = 1; i <= NUM_ENDPOINTS; i++) {
+		struct usb_endpoint_instance *epi = &endpoint_instance[i];
+		udc_setup_ep(device_instance, i, epi);
+	}
 }
 
-static int fill_buffer(u8 *buf)
+static void fastboot_fix_max_packet_size(void)
 {
-	struct usb_endpoint_instance *endpoint =
-					&endpoint_instance[rx_endpoint];
+	int i;
+	int max = (usb_get_port_speed() == 2) ? 512 : 64;
 
-	if (endpoint->rcv_urb && endpoint->rcv_urb->actual_length) {
-		unsigned int nb = 0;
-		char *src = (char *)endpoint->rcv_urb->buffer;
-		unsigned int rx_avail = MAX_BUFFER_SIZE;
+	ep_descriptor_ptrs[0]->wMaxPacketSize = max;
+	ep_descriptor_ptrs[1]->wMaxPacketSize = max;
 
-		if (rx_avail >= endpoint->rcv_urb->actual_length) {
-			nb = endpoint->rcv_urb->actual_length;
+	for (i = 1; i <= NUM_ENDPOINTS; i++) {
+		struct usb_endpoint_instance *epi = &endpoint_instance[i];
+		epi->tx_packetSize = max;
+		epi->rcv_packetSize = max;
+	}
+}
+
+int fastboot_get_rx_buffer(u8 *buf, int max)
+{
+	int byte_cnt = 0;
+	struct usb_endpoint_instance *epi =
+			&endpoint_instance[rx_endpoint];
+
+	while (epi->rcv_urb && epi->rcv_urb->actual_length) {
+		unsigned int nb = epi->rcv_urb->actual_length;
+		char *src = (char *)epi->rcv_urb->buffer;
+
+		if (nb > max) {
+			if (byte_cnt)
+				break;
+			if (buf)
+				memcpy(buf, src, max);
+			printf("%s: returning %s", __func__, src);
+			src += max;
+			printf("%s: dropped %s", __func__, src);
+			return nb;
+		}
+		if (buf)
 			memcpy(buf, src, nb);
-			endpoint->rcv_urb->actual_length = 0;
+		epi->rcv_urb->actual_length = 0;
+
+		byte_cnt += nb;
+		buf += nb;
+		max -= nb;
+		/*
+		 * buffer done if short packet received or exact amount
+		 */
+		if (!max || (nb & (epi->rcv_packetSize - 1))) {
+			usb_rcv_urb(epi, epi->rcv_packetSize);
+			break;
 		}
-		return nb;
+		usb_rcv_urb(epi, max);
+		if (byte_cnt >= (4096 * 32))
+			break;
 	}
-	return 0;
+	return byte_cnt;
 }
 
-static struct urb *next_urb(struct usb_device_instance *device,
-				struct usb_endpoint_instance *endpoint)
+static struct urb *next_tx_urb(struct usb_device_instance *device,
+				struct usb_endpoint_instance *ep)
 {
-	struct urb *current_urb = NULL;
-	int space;
+	struct urb *urb;
 
-	/* If there's a queue, then we should add to the last urb */
-	if (!endpoint->tx_queue)
-		current_urb = endpoint->tx_urb;
-	else
-		/* Last urb from tx chain */
-		current_urb =
-		    p2surround(struct urb, link, endpoint->tx.prev);
-
-	/* Make sure this one has enough room */
-	space = current_urb->buffer_length - current_urb->actual_length;
-	if (space > 0)
-		return current_urb;
-	else {    /* No space here */
-		/* First look at done list */
-		current_urb = first_urb_detached(&endpoint->done);
-		if (!current_urb)
-			current_urb = usbd_alloc_urb(device, endpoint);
-
-		urb_append(&endpoint->tx, current_urb);
-		endpoint->tx_queue++;
+	if (ep->tx_ready.prev != ep->tx_ready.next) {
+		/* > 1 buffer queued */
+		urb = p2surround(struct urb, link, ep->tx_ready.prev);
+		if (urb->actual_length < urb->buffer_length)
+			return urb;
 	}
-	return current_urb;
-}
-
-/*!
- * Function to receive data from host through channel
- *
- * @buf  buffer to fill in
- * @count  read data size
- *
- * @return 0
- */
-int fastboot_usb_recv(u8 *buf, int count)
-{
-	int len = 0;
-
-	while (!fastboot_usb_configured())
-		udc_irq();
-
-	/* update rxqueue to wait new data */
-	mxc_udc_rxqueue_update(2, count);
-
-	while (!len) {
-		if (is_usb_disconnected()) {
-			usb_disconnected = 1;
-			return 0;
-		}
-		udc_irq();
-		if (fastboot_usb_configured())
-			len = fill_buffer(buf);
-	}
-	return len;
+	urb = first_urb_detached(&ep->tx_free);
+	if (!urb)
+		urb = usbd_alloc_urb(device, ep);
+	if (urb)
+		urb_append(&ep->tx_ready, urb);
+	return urb;
 }
 
 int fastboot_getvar(const char *rx_buffer, char *tx_buffer)
@@ -640,28 +463,36 @@ int fastboot_getvar(const char *rx_buffer, char *tx_buffer)
 
 int fastboot_poll()
 {
-	u8 buffer[MAX_BUFFER_SIZE];
-	int length = 0;
-
-	memset(buffer, 0, MAX_BUFFER_SIZE);
-
-	length = fastboot_usb_recv(buffer, MAX_BUFFER_SIZE);
-
 	/* If usb disconnected, blocked here to wait */
-	if (usb_disconnected) {
+	if (is_usb_disconnected()) {
 		udc_disconnect();
-		udc_connect();
+		fastboot_configured_flag = 0;
+		if (connected) {
+			connected = 0;
+			printf("disconnected\n");
+			return FASTBOOT_DISCONNECT;
+		}
+		return FASTBOOT_INACTIVE;
 	}
-
-	if (!length)
+	if (!connected) {
+		connected = 1;
+		printf("connected\n");
+		udc_connect();		/* Enable pullup for host detection */
+	}
+	udc_irq();
+	if (!fastboot_usb_configured())
 		return FASTBOOT_INACTIVE;
 
 	/* Pass this up to the interface's handler */
 	if (fastboot_interface && fastboot_interface->rx_handler) {
-		if (!fastboot_interface->rx_handler(buffer, length))
+		struct usb_endpoint_instance *epi =
+				&endpoint_instance[rx_endpoint];
+		if (epi->rcv_urb && epi->rcv_urb->actual_length) {
+			fastboot_interface->rx_handler(fastboot_interface);
 			return FASTBOOT_OK;
+		}
 	}
-	return FASTBOOT_OK;
+	return FASTBOOT_INACTIVE;
 }
 
 int fastboot_tx(unsigned char *buffer, unsigned int buffer_size)
@@ -672,14 +503,14 @@ int fastboot_tx(unsigned char *buffer, unsigned int buffer_size)
 
 static int write_buffer(const char *buffer, unsigned int buffer_size)
 {
-	struct usb_endpoint_instance *endpoint =
+	struct usb_endpoint_instance *epi =
 		(struct usb_endpoint_instance *)&endpoint_instance[tx_endpoint];
 	struct urb *current_urb = NULL;
 
 	if (!fastboot_usb_configured())
 		return 0;
 
-	current_urb = next_urb(device_instance, endpoint);
+	current_urb = next_tx_urb(device_instance, epi);
 	if (buffer_size) {
 		char *dest;
 		int space_avail, popnum, count, total = 0;
@@ -704,15 +535,21 @@ static int write_buffer(const char *buffer, unsigned int buffer_size)
 			if (popnum == 0)
 				break;
 
+			if (0)
+				printf("actual_length=%x popnum=%x space_avail=%x, count=%x\n",
+					current_urb->actual_length, popnum, space_avail, count);
 			memcpy(dest, buffer + total, popnum);
-			printf("send: %s\n", (char *)buffer);
+			if (0)
+				printf("send: %s\n", (char *)buffer);
 
 			current_urb->actual_length += popnum;
 			total += popnum;
 
-			if (udc_endpoint_write(endpoint))
+			if (udc_endpoint_write(epi)) {
 				/* Write pre-empted by RX */
+				printf("rx preempt\n");
 				return 0;
+			}
 			count -= popnum;
 		} /* end while */
 		return total;
@@ -735,10 +572,30 @@ int fastboot_tx_status(const char *buffer, unsigned int buffer_size)
 	return 0;
 }
 
+void free_urb_list(struct urb_link *urb_link)
+{
+	struct urb *urb;
+	for (;;) {
+		urb = first_urb_detached(urb_link);
+		if (!urb)
+			return;
+		usbd_dealloc_urb(urb);
+	}
+}
+
 void fastboot_shutdown(void)
 {
+	struct usb_endpoint_instance *epi = &endpoint_instance[0];
+	int i;
 	usb_shutdown();
 
+	for(i = 0; i < ARRAY_SIZE(endpoint_instance); i++, epi++) {
+		free_urb_list(&epi->rcv);	/* received urbs */
+		free_urb_list(&epi->rx_free);	/* empty urbs ready to receive */
+		usbd_dealloc_urb(epi->rcv_urb);	/* active urb */
+		free_urb_list(&epi->tx_ready);	/* urbs ready to transmit */
+		free_urb_list(&epi->tx_free);	/* transmitted urbs */
+	}
 	/* Reset some globals */
 	fastboot_interface = NULL;
 }
@@ -761,6 +618,7 @@ static void fastboot_event_handler(struct usb_device_instance *device,
 		fastboot_init_endpoints();
 		break;
 	case DEVICE_ADDRESS_ASSIGNED:
+		fastboot_fix_max_packet_size();
 	default:
 		break;
 	}

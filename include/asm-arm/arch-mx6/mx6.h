@@ -818,6 +818,11 @@ extern int is_soc_rev(int rev);
 extern enum boot_device get_boot_device(void);
 extern void fsl_set_system_rev(void);
 
+extern void set_usboh3_clk(void);
+extern void set_usb_phy1_clk(void);
+extern void enable_usboh3_clk(unsigned char enable);
+extern void enable_usb_phy1_clk(unsigned char enable);
+void reset_usb_phy1(void);
 #endif /* __ASSEMBLER__*/
 
 #endif /*  __ASM_ARCH_MXC_MX6_H__ */

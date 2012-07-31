@@ -357,15 +357,14 @@ void usbd_rcv_complete(struct usb_endpoint_instance *endpoint, int len, int urb_
 		struct urb *rcv_urb;
 
 		/*usbdbg("len: %d urb: %p\n", len, endpoint->rcv_urb); */
-
 		/* if we had an urb then update actual_length, dispatch if neccessary */
 		if ((rcv_urb = endpoint->rcv_urb)) {
 
 			/*usbdbg("actual: %d buffer: %d\n", */
 			/*rcv_urb->actual_length, rcv_urb->buffer_length); */
 
-			/* check the urb is ok, are we adding data less than the packetsize */
-			if (!urb_bad && (len <= endpoint->rcv_packetSize)) {
+			/* check the urb is ok, are we don't overflow urb */
+			if (!urb_bad && ((len + rcv_urb->actual_length) <= rcv_urb->buffer_length)) {
 			  /*usbdbg("updating actual_length by %d\n",len); */
 
 				/* increment the received data size */
@@ -396,41 +395,29 @@ void usbd_rcv_complete(struct usb_endpoint_instance *endpoint, int len, int urb_
  */
 void usbd_tx_complete (struct usb_endpoint_instance *endpoint)
 {
-	if (endpoint) {
-		struct urb *tx_urb;
+	struct urb *tx_urb;
+	int sent;
 
-		/* if we have a tx_urb advance or reset, finish if complete */
-		if ((tx_urb = endpoint->tx_urb)) {
-			int sent = endpoint->last;
-			endpoint->sent += sent;
-			endpoint->last -= sent;
+	if (!endpoint)
+		return;
+	if (endpoint->tx_ready.next == &endpoint->tx_ready)
+		return;
 
-			if( (endpoint->tx_urb->actual_length - endpoint->sent) <= 0 ) {
-				tx_urb->actual_length = 0;
-				endpoint->sent = 0;
-				endpoint->last = 0;
+	tx_urb = p2surround(struct urb, link, endpoint->tx_ready.next);
 
-				/* Remove from active, save for re-use */
-				urb_detach(tx_urb);
-				urb_append(&endpoint->done, tx_urb);
-				/*usbdbg("done->next %p, tx_urb %p, done %p", */
-				/*	 endpoint->done.next, tx_urb, &endpoint->done); */
+	/* if we have a tx_urb advance or reset, finish if complete */
+	sent = endpoint->last;
+	endpoint->sent += sent;
+	endpoint->last -= sent;
 
-				endpoint->tx_urb = first_urb_detached(&endpoint->tx);
-				if( endpoint->tx_urb ) {
-					endpoint->tx_queue--;
-					usbdbg("got urb from tx list");
-				}
-				if( !endpoint->tx_urb ) {
-					/*usbdbg("taking urb from done list"); */
-					endpoint->tx_urb = first_urb_detached(&endpoint->done);
-				}
-				if( !endpoint->tx_urb ) {
-					usbdbg("allocating new urb for tx_urb");
-					endpoint->tx_urb = usbd_alloc_urb(tx_urb->device, endpoint);
-				}
-			}
-		}
+	if (tx_urb->actual_length <= endpoint->sent) {
+		tx_urb->actual_length = 0;
+		endpoint->sent = 0;
+		endpoint->last = 0;
+
+		/* Remove from active, save for re-use */
+		urb_detach(tx_urb);
+		urb_append(&endpoint->tx_free, tx_urb);
 	}
 }
 
@@ -565,7 +552,7 @@ struct urb *usbd_alloc_urb (struct usb_device_instance *device,
 	urb->buffer_length = sizeof (urb->buffer_data);
 
 	urb_link_init (&urb->link);
-
+	if (0) printf("%s: %p %p\n", __func__, __builtin_return_address(0), urb);
 	return urb;
 }
 
@@ -579,6 +566,7 @@ void usbd_dealloc_urb (struct urb *urb)
 {
 	if (urb) {
 		free (urb);
+		if (0) printf("%s:%p\n", __func__, urb);
 	}
 }
 
