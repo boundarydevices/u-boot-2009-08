@@ -27,7 +27,10 @@ LIB	:= $(obj)libfastboot.a
 
 # ohci
 COBJS-$(CONFIG_FASTBOOT) += fastboot.o
-
+COBJS-$(CONFIG_FASTBOOT_STORAGE_ENV) += storage_env.o
+COBJS-$(CONFIG_FASTBOOT_STORAGE_EMMC_SATA) += storage_emmc_sata.o
+COBJS-$(CONFIG_FASTBOOT_STORAGE_NAND) += storage_nand.o
+COBJS-$(CONFIG_FASTBOOT_STORAGE_SF) += storage_sf.o
 COBJS	:= $(COBJS-y)
 SRCS	:= $(COBJS:.o=.c)
 OBJS	:= $(addprefix $(obj),$(COBJS))

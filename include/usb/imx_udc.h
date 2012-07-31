@@ -146,7 +146,7 @@ struct ep_queue_item {
 	volatile unsigned int page3;
 	volatile unsigned int page4;
 	unsigned int item_dma;
-	unsigned int page_vir;
+	unsigned char *page_vir;
 	unsigned int page_dma;
 	struct ep_queue_item *next_item_vir;
 	volatile unsigned int reserved[5];
@@ -486,4 +486,6 @@ void usb_shutdown(void);
 
 int is_usb_disconnected(void);
 
+int usb_get_port_speed(void);
+void usb_rcv_urb(struct usb_endpoint_instance *epi, unsigned max_length);
 #endif

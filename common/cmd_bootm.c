@@ -1499,7 +1499,7 @@ static unsigned char boothdr[512];
 /* booti <addr> [ mmc0 | mmc1 [ <partition> ] ] */
 int do_booti(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
-	unsigned addr;
+	unsigned addr = 0;
 	char *ptn = "boot";
 	int mmcc = -1;
 	boot_img_hdr *hdr = (void *)boothdr;
@@ -1566,9 +1566,10 @@ int do_booti(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 			.start = info.start,
 			.length = info.start * info.blksz,
 			.flags = 0,
-			.partition_id = 0,
+			.boot_partition = 0,
+			.dev_ops = &part_mmc_ops,
 		};
-		strncpy(the_partition.name, ptn, 10);
+		strncpy(the_partition.name, ptn, sizeof(the_partition.name));
 		fastboot_flash_add_ptn(&the_partition);
 		/* fastboot_flash_dump_ptn(); */
 
@@ -1577,22 +1578,8 @@ int do_booti(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 			printf("booti: cannot find '%s' partition\n", ptn);
 			goto fail;
 		}
-
-		if (mmc->block_dev.block_read(mmcc, pte->start,
-					      1, (void *)hdr) < 0) {
-			printf("booti: mmc failed to read bootimg header\n");
-			goto fail;
-		}
-			/* flush cache after read */
-		flush_cache((ulong)hdr, 512); /* FIXME */
-
-		if (memcmp(hdr->magic, BOOT_MAGIC, 8)) {
-			printf("booti: bad boot image magic\n");
-			goto fail;
-		}
-
-		sector = pte->start + (hdr->page_size / 512);
-#else
+		info.start = pte->start;
+#endif
 		if (mmc->block_dev.block_read(mmcc, info.start,
 					      1, (void *)hdr) < 0) {
 			printf("booti: mmc failed to read bootimg header\n");
@@ -1607,7 +1594,6 @@ int do_booti(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		}
 
 		sector = info.start + (hdr->page_size / 512);
-#endif
 		if (mmc->block_dev.block_read(mmcc, sector,
 					      (hdr->kernel_size / 512) + 1,
 					      (void *)hdr->kernel_addr) < 0) {

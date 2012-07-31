@@ -26,29 +26,32 @@
  */
 
 #include <common.h>
+#include <asm/errno.h>
 #include <asm/io.h>
 #include <asm/types.h>
 #include <malloc.h>
-#include <command.h>
-#include <asm/errno.h>
 #include <usbdevice.h>
 #include <usb/imx_udc.h>
 
 #include "ep0.h"
-
+//#define DEBUG
 #ifdef DEBUG
 #define DBG(x...) printf(x)
+#define ENTRY printf("%s:entry\n", __func__);
+#define EXIT(a) printf("%s:exit %x\n", __func__, a);
 #else
 #define DBG(x...) do {} while (0)
+#define ENTRY
+#define EXIT(a)
 #endif
+
 
 #define mdelay(n) udelay((n)*1000)
 
-#define EP_TQ_ITEM_SIZE 4
+#define EP_TQ_ITEM_CNT 8	/* keep power of 2 */
 
-#define inc_index(x) (x = ((x+1) % EP_TQ_ITEM_SIZE))
+#define inc_index(x) ((x+1) % EP_TQ_ITEM_CNT)
 
-#define ep_is_in(e, tx) ((e == 0) ? (mxc_udc.ep0_dir == USB_DIR_IN) : tx)
 
 #define USB_RECIP_MASK	    0x03
 #define USB_TYPE_MASK	    (0x03 << 5)
@@ -59,7 +62,9 @@ typedef struct {
 	int dir;
 	int max_pkt_size;
 	struct usb_endpoint_instance *epi;
-	struct ep_queue_item *ep_dtd[EP_TQ_ITEM_SIZE];
+	struct ep_queue_item *ep_dtd[EP_TQ_ITEM_CNT]; /* malloced dmaable */
+	void *release_dtd;
+	void *release_payload;
 	int index; /* to index the free tx tqi */
 	int done;  /* to index the complete rx tqi */
 	struct ep_queue_item *tail; /* last item in the dtd chain */
@@ -67,20 +72,45 @@ typedef struct {
 } mxc_ep_t;
 
 typedef struct {
-	int    max_ep;
-	int    ep0_dir;
-	int    setaddr;
-	struct ep_queue_head *ep_qh;
-	mxc_ep_t *mxc_ep;
-	u32    qh_dma;
+	int	max_ep;
+	int	setaddr;
+	struct ep_queue_head *ep_qh;	/* malloced dmaable, array of max_ep entries */
+	void	*release;
+	mxc_ep_t *mxc_ep;		/* malloced array of max_ep entries */
+	u32	qh_dma;
+	struct urb *ep0_urb;
 } mxc_udc_ctrl;
-
-typedef struct usb_device_request setup_packet;
 
 static int usb_highspeed;
 static mxc_udc_ctrl mxc_udc;
 static struct usb_device_instance *udc_device;
-static struct urb *ep0_urb;
+
+static void release_usb_space(void)
+{
+	mxc_ep_t *ep = mxc_udc.mxc_ep;
+
+	usbd_dealloc_urb(mxc_udc.ep0_urb);
+	mxc_udc.ep0_urb = NULL;
+	if (ep) {
+		/*
+		 * release in reverse order of allocation
+		 * so that same buffer is returned
+		 * next allocation, to ease debugging
+		 */
+		int i = mxc_udc.max_ep - 1;
+		ep += i;
+		for (; i >= 0; i--, ep--) {
+			free(ep->release_payload);
+			ep->release_payload = NULL;
+			free(ep->release_dtd);
+			ep->release_dtd = NULL;
+		}
+		free(mxc_udc.mxc_ep);
+		mxc_udc.mxc_ep = NULL;
+	}
+	free(mxc_udc.release);
+	mxc_udc.release = NULL;
+}
 /*
  * malloc an nocached memory
  * dmaaddr: phys address
@@ -88,24 +118,25 @@ static struct urb *ep0_urb;
  * align  : alignment for this memroy
  * return : vir address(NULL when malloc failt)
 */
-static void *malloc_dma_buffer(u32 *dmaaddr, int size, int align)
+static void *malloc_dma_buffer(u32 *dmaaddr, void **release, int size, int align)
 {
-	int msize = (size + align  - 1);
-	u32 vir, vir_align;
+	void *virt;
 
-	vir = (u32)malloc(msize);
+	virt = memalign(align, size);
+	if (*release)
+		printf("%s: release bug\n", __func__);
+	*release = virt;
 #ifdef CONFIG_ARCH_MMU
-	vir = ioremap_nocache(iomem_to_phys(vir), msize);
+	virt = ioremap_nocache(iomem_to_phys((unsigned long)virt), size);
 #endif
-	memset((void *)vir, 0, msize);
-	vir_align = (vir + align - 1) & (~(align - 1));
+	memset(virt, 0, size);
 #ifdef CONFIG_ARCH_MMU
-	*dmaaddr = (u32)iomem_to_phys(vir_align);
+	*dmaaddr = (u32)iomem_to_phys((u32)virt);
 #else
-	*dmaaddr = vir_align;
+	*dmaaddr = (u32)virt;
 #endif
-	DBG("vir addr %x, dma addr %x\n", vir_align, *dmaaddr);
-	return (void *)vir_align;
+	printf("virt addr %p, dma addr %x\n", virt, *dmaaddr);
+	return virt;
 }
 
 int is_usb_disconnected()
@@ -119,46 +150,39 @@ int is_usb_disconnected()
 static int mxc_init_usb_qh(void)
 {
 	int size;
+	int i;
+	mxc_ep_t *ep;
+
+	ENTRY
+	release_usb_space();
 	memset(&mxc_udc, 0, sizeof(mxc_udc));
 	mxc_udc.max_ep = (readl(USB_DCCPARAMS) & DCCPARAMS_DEN_MASK) * 2;
 	DBG("udc max ep = %d\n", mxc_udc.max_ep);
 	size = mxc_udc.max_ep * sizeof(struct ep_queue_head);
-	mxc_udc.ep_qh = malloc_dma_buffer(&mxc_udc.qh_dma,
+	mxc_udc.ep_qh = malloc_dma_buffer(&mxc_udc.qh_dma, &mxc_udc.release,
 					     size, USB_MEM_ALIGN_BYTE);
 	if (!mxc_udc.ep_qh) {
 		printf("malloc ep qh dma buffer failure\n");
 		return -1;
 	}
-	memset(mxc_udc.ep_qh, 0, size);
 	writel(mxc_udc.qh_dma & 0xfffff800, USB_ENDPOINTLISTADDR);
-	return 0;
-}
 
-static int mxc_init_ep_struct(void)
-{
-	int i;
-
+	size = mxc_udc.max_ep * sizeof(mxc_ep_t);
 	DBG("init mxc ep\n");
-	mxc_udc.mxc_ep = malloc(mxc_udc.max_ep * sizeof(mxc_ep_t));
+	mxc_udc.mxc_ep = malloc(size);
 	if (!mxc_udc.mxc_ep) {
 		printf("malloc ep struct failure\n");
 		return -1;
 	}
-	memset((void *)mxc_udc.mxc_ep, 0, sizeof(mxc_ep_t) * mxc_udc.max_ep);
-	for (i = 0; i < mxc_udc.max_ep / 2; i++) {
-		mxc_ep_t *ep;
-		ep  = mxc_udc.mxc_ep + i * 2;
-		ep->epnum = i;
+	memset((void *)mxc_udc.mxc_ep, 0, size);
+	ep  = mxc_udc.mxc_ep;
+	for (i = 0; i < mxc_udc.max_ep; i++, ep++) {
+		ep->epnum = i >> 1;
 		ep->index = ep->done = 0;
-		ep->dir = USB_RECV;  /* data from host to device */
-		ep->ep_qh = &mxc_udc.ep_qh[i * 2];
-
-		ep  = mxc_udc.mxc_ep + (i * 2 + 1);
-		ep->epnum = i;
-		ep->index = ep->done = 0;
-		ep->dir = USB_SEND;  /* data to host from device */
-		ep->ep_qh = &mxc_udc.ep_qh[(i * 2 + 1)];
+		ep->dir = (i & 1) ? USB_SEND : USB_RECV;
+		ep->ep_qh = &mxc_udc.ep_qh[i];
 	}
+	EXIT(0)
 	return 0;
 }
 
@@ -168,22 +192,24 @@ static int mxc_init_ep_dtd(u8 index)
 	struct ep_queue_item *tqi;
 	u32 dma;
 	int i;
+	int size;
 
+	ENTRY
 	if (index >= mxc_udc.max_ep)
 		DBG("%s ep %d is not valid\n", __func__, index);
 
 	ep = mxc_udc.mxc_ep + index;
-	tqi = malloc_dma_buffer(&dma, EP_TQ_ITEM_SIZE *
-			    EP_TQ_ITEM_SIZE * sizeof(struct ep_queue_item),
-			    USB_MEM_ALIGN_BYTE);
+	size = EP_TQ_ITEM_CNT * sizeof(struct ep_queue_item);
+	tqi = malloc_dma_buffer(&dma, &ep->release_dtd, size, USB_MEM_ALIGN_BYTE);
 	if (tqi == NULL) {
 		printf("%s malloc tq item failure\n", __func__);
 		return -1;
 	}
-	for (i = 0; i < EP_TQ_ITEM_SIZE; i++) {
-		ep->ep_dtd[i] = tqi + i;
-		ep->ep_dtd[i]->item_dma =
-			dma + i * sizeof(struct ep_queue_item);
+	for (i = 0; i < EP_TQ_ITEM_CNT; i++) {
+		ep->ep_dtd[i] = tqi;
+		ep->ep_dtd[i]->item_dma = dma;
+		tqi++;
+		dma += sizeof(struct ep_queue_item);
 	}
 	return -1;
 }
@@ -193,6 +219,7 @@ static void mxc_ep_qh_setup(u8 ep_num, u8 dir, u8 ep_type,
 	struct ep_queue_head *p_qh = mxc_udc.ep_qh + (2 * ep_num + dir);
 	u32 tmp = 0;
 
+	ENTRY
 	tmp = max_pkt_len << 16;
 	switch (ep_type) {
 	case USB_ENDPOINT_XFER_CONTROL:
@@ -217,6 +244,8 @@ static void mxc_ep_qh_setup(u8 ep_num, u8 dir, u8 ep_type,
 static void mxc_ep_setup(u8 ep_num, u8 dir, u8 ep_type)
 {
 	u32 epctrl = 0;
+
+	ENTRY
 	epctrl = readl(USB_ENDPTCTRL(ep_num));
 	if (dir) {
 		if (ep_num)
@@ -240,25 +269,38 @@ static void mxc_tqi_init_page(struct ep_queue_item *tqi)
 	tqi->page3 = tqi->page2 + 0x1000;
 	tqi->page4 = tqi->page3 + 0x1000;
 }
-static int mxc_malloc_ep0_ptr(mxc_ep_t *ep)
+
+#define ROUND_UP(a, b) ((((a) - 1) | ((b) - 1)) + 1)
+
+int malloc_payload(mxc_ep_t *ep)
 {
 	int i;
 	struct ep_queue_item *tqi;
-	int max_pkt_size = USB_MAX_CTRL_PAYLOAD;
+	unsigned char *p;
+	unsigned page_dma;
+	int max = ROUND_UP(ep->max_pkt_size, USB_MEM_ALIGN_BYTE);
 
-	ep->max_pkt_size = max_pkt_size;
-	for (i = 0; i < EP_TQ_ITEM_SIZE; i++) {
+	p = malloc_dma_buffer(&page_dma, &ep->release_payload,
+			max * EP_TQ_ITEM_CNT, USB_MEM_ALIGN_BYTE);
+	if (!p) {
+		printf("malloc ep's dtd bufer failure\n");
+		return -1;
+	}
+	for (i = 0; i < EP_TQ_ITEM_CNT; i++) {
 		tqi = ep->ep_dtd[i];
-		tqi->page_vir = (u32)malloc_dma_buffer(&tqi->page_dma,
-						    max_pkt_size,
-						    USB_MEM_ALIGN_BYTE);
-		if ((void *)tqi->page_vir == NULL) {
-			printf("malloc ep's dtd bufer failure, i=%d\n", i);
-			return -1;
-		}
+		tqi->page_vir = p;
+		tqi->page_dma = page_dma;
 		mxc_tqi_init_page(tqi);
+		p += max;
+		page_dma += max;
 	}
 	return 0;
+}
+
+static int mxc_malloc_ep0_ptr(mxc_ep_t *ep)
+{
+	ep->max_pkt_size = USB_MAX_CTRL_PAYLOAD;
+	return malloc_payload(ep);
 }
 
 static void ep0_setup(void)
@@ -296,7 +338,7 @@ static int mxc_ep_xfer_is_working(mxc_ep_t *ep, u32 in)
 		temp = readl(USB_USBCMD);
 		writel(temp|USB_CMD_ATDTW, USB_USBCMD);
 		tstat = readl(USB_ENDPTSTAT) & bitmask;
-	} while (!readl(USB_USBCMD) & USB_CMD_ATDTW);
+	} while (!(readl(USB_USBCMD) & USB_CMD_ATDTW));
 	writel(temp & (~USB_CMD_ATDTW), USB_USBCMD);
 
 	if (tstat)
@@ -309,6 +351,7 @@ static void mxc_update_qh(mxc_ep_t *ep, struct ep_queue_item *tqi, u32 in)
 	/* in: means device -> host */
 	struct ep_queue_head *qh = ep->ep_qh;
 	u32 bitmask = 1 << (ep->epnum + in * 16);
+
 	DBG("%s, line %d, epnum=%d, in=%d\n", __func__,
 		__LINE__, ep->epnum, in);
 	qh->next_queue_item = tqi->item_dma;
@@ -316,41 +359,48 @@ static void mxc_update_qh(mxc_ep_t *ep, struct ep_queue_item *tqi, u32 in)
 	writel(bitmask, USB_ENDPTPRIME);
 }
 
-static void _dump_buf(u32 buf, u32 len)
+static void _dump_buf(unsigned char *buf, u32 len)
 {
 #ifdef DEBUG
-	char *data = (char *)buf;
 	int i;
 	for (i = 0; i < len; i++)
-		printf("%x ", data[i]);
+		printf("%x ", buf[i]);
 	printf("\n");
 #endif
 }
 
-
-static void mxc_udc_queue_update(u8 epnum, u8 *data, u32 len, u32 tx)
+static void mxc_udc_dtd_update(mxc_ep_t *ep, u8 *data, u32 len)
 {
-	mxc_ep_t *ep;
 	struct ep_queue_item *tqi, *head, *last;
+	int max;
 	int send = 0;
-	int in;
+	int in = data ? 1 : 0;	/* an in endpoint will transit data */
 
 	head = last = NULL;
-	in = ep_is_in(epnum, tx);
-	ep = mxc_udc.mxc_ep + (epnum * 2 + in);
-	DBG("epnum = %d,  in = %d\n", epnum, in);
+	DBG("epnum = %d,  in = %d\n", ep->epnum, in);
+	max = ROUND_UP(ep->max_pkt_size, USB_MEM_ALIGN_BYTE);
 	do {
-		tqi = ep->ep_dtd[ep->index];
-		DBG("%s, index = %d, tqi = %p\n", __func__, ep->index, tqi);
-		while (mxc_tqi_is_busy(tqi))
-			;
+		int index = ep->index;
+		tqi = ep->ep_dtd[index];
+		DBG("%s, ep=%p, done=%d index = %d, tqi = %p\n", __func__, ep, ep->done, index, tqi);
+		index = inc_index(index);
+		if ((index == ep->done) || mxc_tqi_is_busy(tqi)) {
+			printf("!!!BUG tqi=%p info=%x index=%x done=%x last=%p len=%x\n", tqi, tqi->info, index, ep->done, last, len);
+			if (!last)
+				return;
+			break;
+		}
 		mxc_tqi_init_page(tqi);
 		DBG("%s, line = %d, len = %d\n", __func__, __LINE__, len);
-		inc_index(ep->index);
-		send = MIN(len, 0x1000);
+		ep->index = index;
+		send = MIN(len, max);
+		tqi->reserved[1] = (unsigned)data;
 		if (data) {
-			memcpy((void *)tqi->page_vir, (void *)data, send);
+			memcpy(tqi->page_vir, (void *)data, send);
 			_dump_buf(tqi->page_vir, send);
+			data += send;
+		} else {
+			tqi->reserved[0] = send;
 		}
 		if (!head)
 			last = head = tqi;
@@ -359,11 +409,8 @@ static void mxc_udc_queue_update(u8 epnum, u8 *data, u32 len, u32 tx)
 			last->next_item_vir = tqi;
 			last = tqi;
 		}
-		if (!tx)
-			tqi->reserved[0] = send;
 		/* we set IOS for every dtd */
 		tqi->info = ((send << 16) | (1 << 15) | (1 << 7));
-		data += send;
 		len -= send;
 	} while (len);
 
@@ -376,24 +423,37 @@ static void mxc_udc_queue_update(u8 epnum, u8 *data, u32 len, u32 tx)
 			goto out;
 		}
 	}
+	/* release previous unused setup */
+	for (;;) {
+		tqi = ep->ep_dtd[ep->done];
+		if (tqi == head)
+			break;
+		if (!mxc_tqi_is_busy(tqi))
+			break;	/* finished, but not processed yet */
+		tqi->page_vir[80] = 0;
+		/* This buffer will be orphaned if we don't mark as not busy */
+		printf("Dropping bytes, info=%x data=0x%x '%s' epnum=%d, dir=%d, max_pkt_size=0x%x\n", tqi->info,
+				tqi->reserved[1], tqi->page_vir, ep->epnum, ep->dir, ep->max_pkt_size);
+		tqi->info &= ~(1 << 7);
+		break;
+	}
 	mxc_update_qh(ep, head, in);
 out:
 	ep->tail = last;
 }
 
-static void mxc_udc_txqueue_update(u8 ep, u8 *data, u32 len)
+static void mxc_udc_queue_update(u8 epnum, u8 *data, u32 len)
 {
-	mxc_udc_queue_update(ep, data, len, 1);
-}
+	int dir = data ? USB_SEND : USB_RECV;	/* USB_SEND(in endpoint) == 1*/
+	mxc_ep_t *ep = mxc_udc.mxc_ep + (epnum * 2 + dir);
 
-void mxc_udc_rxqueue_update(u8 ep, u32 len)
-{
-	mxc_udc_queue_update(ep, NULL, len, 0);
+	mxc_udc_dtd_update(ep, data, len);
 }
 
 static void mxc_ep0_stall(void)
 {
 	u32 temp;
+
 	temp = readl(USB_ENDPTCTRL(0));
 	temp |= EPCTRL_TX_EP_STALL | EPCTRL_RX_EP_STALL;
 	writel(temp, USB_ENDPTCTRL(0));
@@ -422,6 +482,7 @@ static void mxc_usb_stop(void)
 
 	writel(temp, USB_USBINTR);
 
+	/* disable pullup */
 	/* Set controller to Stop */
 	temp = readl(USB_USBCMD);
 	temp &= ~USB_CMD_RUN_STOP;
@@ -431,6 +492,7 @@ static void mxc_usb_stop(void)
 static void usb_phy_init(void)
 {
 	u32 temp;
+
 	/* select 24M clk */
 	temp = readl(USB_PHY1_CTRL);
 	temp &= ~3;
@@ -479,6 +541,7 @@ static void usb_set_mode_device(void)
 static void usb_init_eps(void)
 {
 	u32 temp;
+
 	DBG("Flush begin\n");
 	temp = readl(USB_ENDPTNAKEN);
 	temp |= 0x10001;	/* clear mode bits */
@@ -499,18 +562,14 @@ static void usb_udc_init(void)
 	usb_set_mode_device();
 	mxc_init_usb_qh();
 	usb_init_eps();
-	mxc_init_ep_struct();
 	ep0_setup();
 }
 
 void usb_shutdown(void)
 {
-	u32 temp;
-	/* disable pullup */
-	temp = readl(USB_USBCMD);
-	temp &= ~USB_CMD_RUN_STOP;
-	writel(temp, USB_USBCMD);
+	mxc_usb_stop();
 	mdelay(2);
+	release_usb_space();
 }
 
 static void ch9getstatus(u8 request_type, u16 value, u16 index, u16 length)
@@ -525,14 +584,14 @@ static void ch9getstatus(u8 request_type, u16 value, u16 index, u16 length)
 	} else if ((request_type & USB_RECIP_MASK) == USB_RECIP_ENDPOINT) {
 		tmp = 0;
 	}
-	mxc_udc.ep0_dir = USB_DIR_IN;
-	mxc_udc_queue_update(0, (u8 *)&tmp, 2, 0xffffffff);
+	mxc_udc_queue_update(0, (u8 *)&tmp, 2);
 }
-static void mxc_udc_read_setup_pkt(setup_packet *s)
+static void mxc_udc_read_setup_pkt(struct usb_device_request *s)
 {
 	u32 temp;
+
 	temp = readl(USB_ENDPTSETUPSTAT);
-	writel(temp, USB_ENDPTSETUPSTAT);
+	writel(temp | 1, USB_ENDPTSETUPSTAT);
 	DBG("setup stat %x\n", temp);
 	do {
 		temp = readl(USB_USBCMD);
@@ -540,26 +599,24 @@ static void mxc_udc_read_setup_pkt(setup_packet *s)
 		writel(temp, USB_USBCMD);
 		memcpy((void *)s,
 			(void *)mxc_udc.mxc_ep[0].ep_qh->setup_data, 8);
-	} while (!readl(USB_USBCMD) & USB_CMD_SUTW);
+	} while (!(readl(USB_USBCMD) & USB_CMD_SUTW));
 
 	DBG("handle_setup s.type=%x req=%x len=%x\n",
 		s->bmRequestType, s->bRequest, s->wLength);
 	temp = readl(USB_USBCMD);
 	temp &= ~USB_CMD_SUTW;
-	writel(temp, USB_ENDPTSETUPSTAT);
+	writel(temp, USB_USBCMD);
 }
 
 static void mxc_udc_recv_setup(void)
 {
-	setup_packet *s = &ep0_urb->device_request;
+	u8 tmp;
+	struct usb_device_request *s = &mxc_udc.ep0_urb->device_request;
+	int in = (s->bmRequestType & USB_DIR_IN);
 
+	ENTRY
 	mxc_udc_read_setup_pkt(s);
-	if (s->wLength)	{
-		mxc_udc.ep0_dir = (s->bmRequestType & USB_DIR_IN) ?
-					USB_DIR_OUT : USB_DIR_IN;
-		mxc_udc_queue_update(0, NULL, 0, 0xffffffff);
-	}
-	if (ep0_recv_setup(ep0_urb)) {
+	if (ep0_recv_setup(mxc_udc.ep0_urb)) {
 		mxc_ep0_stall();
 		return;
 	}
@@ -570,14 +627,13 @@ static void mxc_udc_recv_setup(void)
 			break;
 		ch9getstatus(s->bmRequestType, s->wValue,
 				s->wIndex, s->wLength);
-		return;
+		goto status_phase;
 	case USB_REQ_SET_ADDRESS:
 		if (s->bmRequestType != (USB_DIR_OUT |
 			    USB_TYPE_STANDARD | USB_RECIP_DEVICE))
 			break;
 		mxc_udc.setaddr = 1;
-		mxc_udc.ep0_dir = USB_DIR_IN;
-		mxc_udc_queue_update(0, NULL, 0, 0xffffffff);
+		mxc_udc_queue_update(0, &tmp, 0);	/* status */
 		usbd_device_event_irq(udc_device, DEVICE_ADDRESS_ASSIGNED, 0);
 		return;
 	case USB_REQ_SET_CONFIGURATION:
@@ -585,116 +641,179 @@ static void mxc_udc_recv_setup(void)
 	case USB_REQ_CLEAR_FEATURE:
 	case USB_REQ_SET_FEATURE:
 	{
-		int rc = -1;
-		if ((s->bmRequestType & (USB_RECIP_MASK | USB_TYPE_MASK)) ==
-				 (USB_RECIP_ENDPOINT | USB_TYPE_STANDARD))
-			rc = 0;
-		else if ((s->bmRequestType &
-			    (USB_RECIP_MASK | USB_TYPE_MASK)) ==
-			     (USB_RECIP_DEVICE | USB_TYPE_STANDARD))
-			rc = 0;
-		else
-			break;
-		if (rc == 0) {
-			mxc_udc.ep0_dir = USB_DIR_IN;
-			mxc_udc_queue_update(0, NULL, 0, 0xffffffff);
+		int field = s->bmRequestType & (USB_TYPE_MASK | USB_RECIP_MASK);
+		if ((field == (USB_TYPE_STANDARD | USB_RECIP_ENDPOINT)) ||
+		    (field == (USB_TYPE_STANDARD | USB_RECIP_DEVICE))) {
+			in = 0;
+			goto status_phase;
 		}
-		return;
+		break;
 	}
 	default:
 		break;
 	}
 	if (s->wLength) {
-		mxc_udc.ep0_dir = (s->bmRequestType & USB_DIR_IN) ?
-					USB_DIR_IN : USB_DIR_OUT;
-		mxc_udc_queue_update(0, ep0_urb->buffer,
-				ep0_urb->actual_length, 0xffffffff);
-		ep0_urb->actual_length = 0;
+		mxc_udc_queue_update(0, in ? mxc_udc.ep0_urb->buffer : NULL,
+				mxc_udc.ep0_urb->actual_length);
+		mxc_udc.ep0_urb->actual_length = 0;
 	} else {
-		mxc_udc.ep0_dir = USB_DIR_IN;
-		mxc_udc_queue_update(0, NULL, 0, 0xffffffff);
+		in = 0;
 	}
-}
-static int mxc_udc_tqi_empty(struct ep_queue_item *tqi)
-{
-	int ret;
-
-	ret = tqi->info & (1 << 7);
-	return ret;
+	/*
+	 * status phase is in opposite direction
+	 * send/receive zero-length packet response for success
+	 */
+status_phase:
+	mxc_udc_queue_update(0, in ? NULL : &tmp, 0);
 }
 
-static struct usb_endpoint_instance *mxc_get_epi(u8 epnum)
+static int _mxc_ep_recv_data(struct usb_endpoint_instance *epi, struct ep_queue_item *tqi)
 {
-	int i;
-	for (i = 0; i < udc_device->bus->max_endpoints; i++) {
-		if ((udc_device->bus->endpoint_array[i].endpoint_address &
-			 USB_ENDPOINT_NUMBER_MASK) == epnum)
-			return &udc_device->bus->endpoint_array[i];
-	}
-	return NULL;
-}
-static u32 _mxc_ep_recv_data(u8 epnum, struct ep_queue_item *tqi)
-{
-	struct usb_endpoint_instance *epi = mxc_get_epi(epnum);
-	struct urb *urb;
+	struct urb *urb = epi->rcv_urb;
 	u32 len = 0;
 
-	if (!epi)
-		return 0;
-
-	urb = epi->rcv_urb;
 	if (urb) {
 		u8 *data = urb->buffer + urb->actual_length;
+		int urb_rem = urb->buffer_length - urb->actual_length;
 		int remain_len = (tqi->info >> 16) & (0xefff);
 		len = tqi->reserved[0] - remain_len;
+		if (tqi->info & ((1 << 5) | (1 << 3)))
+			printf("%s: error: remain_len=%x send=%x info=%x\n", __func__, remain_len, tqi->reserved[0], tqi->info);
+		if (len > urb_rem) {
+			if (!urb_rem)
+				return -1;
+			printf("err: len=%x, urb_rem=%x\n", len, urb_rem);
+			len = urb_rem;
+		}
 		DBG("recv len %d-%d-%d\n", len, tqi->reserved[0], remain_len);
-		memcpy(data, (void *)tqi->page_vir, len);
+		memcpy(data, tqi->page_vir, len);
 	}
 	return len;
 }
 
-static void mxc_udc_ep_recv(u8 epnum)
+static void mxc_udc_ep_recv(mxc_ep_t *ep, unsigned max_length)
 {
-	mxc_ep_t *ep = mxc_udc.mxc_ep + (epnum * 2 + USB_RECV);
 	struct ep_queue_item *tqi;
+
+	DBG("%s: ep=%p, done=%x index=%x\n", __func__, ep, ep->done, ep->index);
 	while (1) {
-		u32 nbytes;
-		tqi = ep->ep_dtd[ep->done];
-		if (mxc_udc_tqi_empty(tqi))
-			break;
-		nbytes = _mxc_ep_recv_data(epnum, tqi);
-		usbd_rcv_complete(ep->epi, nbytes, 0);
-		inc_index(ep->done);
+		int nbytes;
 		if (ep->done == ep->index)
 			break;
+		tqi = ep->ep_dtd[ep->done];
+		if (mxc_tqi_is_busy(tqi))
+			break;
+		nbytes = _mxc_ep_recv_data(ep->epi, tqi);
+		if (nbytes < 0)
+			break;
+		if (nbytes) {
+			/*
+			 * Zero max_length on short packet reception
+			 */
+			if (nbytes & (ep->max_pkt_size - 1))
+				max_length = 0;
+			usbd_rcv_complete(ep->epi, nbytes, 0);
+		}
+		ep->done = inc_index(ep->done);
+	}
+
+	if (max_length) {
+		int used = (ep->index - ep->done) & (EP_TQ_ITEM_CNT - 1);
+		int free = EP_TQ_ITEM_CNT - 1 - used;
+
+		if (0) if (max_length < 0xC000)
+			printf("%s: free=0x%x, used=0x%x, max_length=0x%x max_pkt_size=0x%x\n",
+				__func__, free, used, max_length, ep->max_pkt_size);
+		if (free >= (EP_TQ_ITEM_CNT / 2)) {
+			unsigned max = ROUND_UP(ep->max_pkt_size, USB_MEM_ALIGN_BYTE);
+			unsigned urb_len = ep->epi->rcv_urb->actual_length;
+
+			used *= max;
+			if (max_length > urb_len)
+				max_length -= urb_len;
+			else
+				max_length = ep->max_pkt_size;
+			if (max_length > used) {
+				max_length -= used;
+				free *= max;
+				if (free > max_length) {
+					free = ROUND_UP(max_length, ep->max_pkt_size);
+				}
+				mxc_udc_dtd_update(ep, NULL, free);
+				if (0) if (max_length < 0xC000) {
+					printf("%s: free=0x%x, used=0x%x, max_length=0x%x\n",
+						__func__, free, used, max_length);
+					used = (ep->index - ep->done) & (EP_TQ_ITEM_CNT - 1);
+					printf("%s: used=0x%x urb_len=0x%x\n", __func__, used, urb_len);
+				}
+			}
+		}
 	}
 }
+
+void usb_rcv_urb(struct usb_endpoint_instance *epi, unsigned max_length)
+{
+	int epnum = epi->endpoint_address & USB_ENDPOINT_NUMBER_MASK;
+	mxc_ep_t *ep = mxc_udc.mxc_ep + (epnum * 2 + USB_RECV);
+
+	mxc_udc_ep_recv(ep, max_length);
+}
+
+static void mxc_udc_ep_tx(mxc_ep_t *ep)
+{
+	struct ep_queue_item *tqi;
+	int complete = 0;
+
+	DBG("%s: ep=%p, done=%x index=%x\n", __func__, ep, ep->done, ep->index);
+	while (1) {
+		if (ep->done == ep->index) {
+			if (complete) {
+				DBG("%s: complete\n", __func__);
+				usbd_tx_complete(ep->epi);
+			}
+			break;
+		}
+		tqi = ep->ep_dtd[ep->done];
+		if (mxc_tqi_is_busy(tqi))
+			break;
+		complete = 1;
+		ep->done = inc_index(ep->done);
+	}
+}
+
+unsigned get_mask(unsigned max_ep)
+{
+	unsigned mask1 = (1 << ((max_ep + 1) / 2)) - 1;
+	unsigned mask2 = (1 << (max_ep / 2)) - 1;
+	return mask1 | (mask2 << 16);
+}
+
 static void mxc_udc_handle_xfer_complete(void)
 {
-	int i;
 	u32 bitpos = readl(USB_ENDPTCOMPLETE);
+	mxc_ep_t *ep = mxc_udc.mxc_ep;
 
 	writel(bitpos, USB_ENDPTCOMPLETE);
+	DBG("%s: bitpos=%x\n", __func__, bitpos);
 
-	for (i = 0; i < mxc_udc.max_ep; i++) {
-		int epnum = i >> 1;
-		int dir = i % 2;
-		u32 bitmask = 1 << (epnum + 16 * dir);
-		if (!(bitmask & bitpos))
-			continue;
-		DBG("ep %d, dir %d, complete\n", epnum, dir);
-		if (!epnum) {
-			if (mxc_udc.setaddr) {
-				writel(udc_device->address << 25,
-					USB_DEVICEADDR);
-				mxc_udc.setaddr = 0;
-			}
-			continue;
+	if (mxc_udc.setaddr) {
+		writel(udc_device->address << 25, USB_DEVICEADDR);
+		mxc_udc.setaddr = 0;
+	}
+
+	bitpos &= get_mask(mxc_udc.max_ep);
+	DBG("%s: masked bitpos=%x\n", __func__, bitpos);
+	while (bitpos) {
+		if (bitpos & 1)
+			mxc_udc_ep_recv(ep, 0);
+		ep++;
+
+		if (bitpos & 0x10000) {
+			bitpos &= ~0x10000;
+			mxc_udc_ep_tx(ep);
 		}
-		DBG("############### dir = %d ***************\n", dir);
-		if (dir == USB_SEND)
-			continue;
-		mxc_udc_ep_recv(epnum);
+		bitpos >>= 1;
+		ep++;
 	}
 }
 static void usb_dev_hand_usbint(void)
@@ -712,6 +831,7 @@ static void usb_dev_hand_usbint(void)
 static void usb_dev_hand_reset(void)
 {
 	u32 temp;
+
 	temp = readl(USB_DEVICEADDR);
 	temp &= ~0xfe000000;
 	writel(temp, USB_DEVICEADDR);
@@ -724,26 +844,36 @@ static void usb_dev_hand_reset(void)
 	usbd_device_event_irq(udc_device, DEVICE_RESET, 0);
 }
 
-void usb_dev_hand_pci(void)
+/*
+ * Returns 2 for highspeed
+ */
+int usb_get_port_speed(void)
 {
-	u32 speed;
+	int speed;
+
 	while (readl(USB_PORTSC1) & PORTSCX_PORT_RESET)
 		;
 	speed = readl(USB_PORTSC1) & PORTSCX_PORT_SPEED_MASK;
 	switch (speed) {
 	case PORTSCX_PORT_SPEED_HIGH:
-		usb_highspeed = 2;
+		speed = 2;
 		break;
 	case PORTSCX_PORT_SPEED_FULL:
-		usb_highspeed = 1;
+		speed = 1;
 		break;
 	case PORTSCX_PORT_SPEED_LOW:
-		usb_highspeed = 0;
+		speed = 0;
 		break;
 	default:
+		speed = -EINVAL;
 		break;
 	}
-	DBG("portspeed=%d, speed = %x\n", usb_highspeed, speed);
+	return speed;
+}
+void usb_dev_hand_pci(void)
+{
+	usb_highspeed = usb_get_port_speed();
+	DBG("portspeed=%d\n", usb_highspeed);
 }
 
 void usb_dev_hand_suspend(void)
@@ -753,11 +883,13 @@ static int ll;
 void mxc_irq_poll(void)
 {
 	unsigned irq_src = readl(USB_USBSTS) & readl(USB_USBINTR);
+
 	writel(irq_src, USB_USBSTS);
 
 	if (irq_src == 0)
 		return;
 
+	EXIT(irq_src)
 	if (irq_src & USB_STS_INT) {
 		ll++;
 		DBG("USB_INT\n");
@@ -772,7 +904,7 @@ void mxc_irq_poll(void)
 	if (irq_src & USB_STS_SUSPEND)
 		printf("USB_SUSPEND\n");
 	if (irq_src & USB_STS_ERR)
-		printf("USB_ERR\n");
+		printf("USB_ERR, %x\n", irq_src);
 }
 
 void mxc_udc_wait_cable_insert(void)
@@ -794,12 +926,14 @@ void mxc_udc_wait_cable_insert(void)
 	} while (1);
 }
 
-int udc_disable_over_current()
+int udc_disable_over_current(void)
 {
 	u32 temp;
+
 	temp = readl(USB_OTG_CTRL);
 	temp |= UCTRL_OVER_CUR_POL;
 	writel(temp, USB_OTG_CTRL);
+	return 0;
 }
 
 /*
@@ -842,6 +976,7 @@ void udc_setup_ep(struct usb_device_instance *device, u32 index,
 	int ep_addr;
 	mxc_ep_t *ep;
 
+	ENTRY
 	if (epi) {
 		zlt = 1;
 		mult = 0;
@@ -865,9 +1000,6 @@ void udc_setup_ep(struct usb_device_instance *device, u32 index,
 		ep = mxc_udc.mxc_ep + (epnum * 2 + dir);
 		ep->epi = epi;
 		if (epnum) {
-			struct ep_queue_item *tqi;
-			int i;
-
 			mxc_ep_qh_setup(epnum, dir, ep_type,
 					    max_pkt_size, zlt, mult);
 			mxc_ep_setup(epnum, dir, ep_type);
@@ -875,17 +1007,9 @@ void udc_setup_ep(struct usb_device_instance *device, u32 index,
 
 			/* malloc endpoint's dtd's data buffer*/
 			ep->max_pkt_size = max_pkt_size;
-			for (i = 0; i < EP_TQ_ITEM_SIZE; i++) {
-				tqi = ep->ep_dtd[i];
-				tqi->page_vir = (u32)malloc_dma_buffer(
-					    &tqi->page_dma, max_pkt_size,
-					    USB_MEM_ALIGN_BYTE);
-				if ((void *)tqi->page_vir == NULL) {
-					printf("malloc dtd bufer failure\n");
-					return;
-				}
-				mxc_tqi_init_page(tqi);
-			}
+			malloc_payload(ep);
+			if (dir == USB_RECV)
+				mxc_udc_ep_recv(ep, max_pkt_size);
 		}
 	}
 }
@@ -893,20 +1017,31 @@ void udc_setup_ep(struct usb_device_instance *device, u32 index,
 
 int udc_endpoint_write(struct usb_endpoint_instance *epi)
 {
-	struct urb *urb = epi->tx_urb;
-	int ep_num = epi->endpoint_address & USB_ENDPOINT_NUMBER_MASK;
-	u8 *data = (u8 *)urb->buffer + epi->sent;
-	int n = urb->actual_length - epi->sent;
-	mxc_udc_txqueue_update(ep_num, data, n);
+	struct urb *urb;
+	int ep_num;
+	u8 *data;
+	int n;
+
+	if (epi->tx_ready.next == &epi->tx_ready)
+		return 0;
+
+	urb = p2surround(struct urb, link, epi->tx_ready.next);
+
+	ep_num = epi->endpoint_address & USB_ENDPOINT_NUMBER_MASK;
+	data = (u8 *)urb->buffer + epi->sent;
+	n = urb->actual_length - epi->sent;
+
+	DBG("data=%p, n=%x buffer=%p sent=%x actual_length=%x\n", data, n,
+			urb->buffer, epi->sent, urb->actual_length);
+	mxc_udc_queue_update(ep_num, data, n);
 	epi->last = n;
-	epi->sent += n;
 	return 0;
 }
 
 void udc_enable(struct usb_device_instance *device)
 {
 	udc_device = device;
-	ep0_urb = usbd_alloc_urb(udc_device, udc_device->bus->endpoint_array);
+	mxc_udc.ep0_urb = usbd_alloc_urb(udc_device, udc_device->bus->endpoint_array);
 }
 
 void udc_startup_events(struct usb_device_instance *device)
@@ -924,7 +1059,7 @@ void udc_irq(void)
 void udc_connect(void)
 {
 	mxc_usb_run();
-	mxc_udc_wait_cable_insert();
+//	mxc_udc_wait_cable_insert();
 }
 
 void udc_disconnect(void)

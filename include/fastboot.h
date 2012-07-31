@@ -98,6 +98,8 @@ enum {
     DEV_NAND
 };
 
+struct cmd_fastboot_interface;
+
 struct cmd_fastboot_interface {
 	/* This function is called when a buffer has been
 	   recieved from the client app.
@@ -107,15 +109,14 @@ struct cmd_fastboot_interface {
 	   Returns 1 on failure
 
 	   Set by cmd_fastboot	*/
-	int (*rx_handler)(const unsigned char *buffer,
-			  unsigned int buffer_size);
+	int (*rx_handler)(struct cmd_fastboot_interface *pi);
 
 	/* This function is called when an exception has
 	   occurred in the device code and the state
 	   off fastboot needs to be reset
 
 	   Set by cmd_fastboot */
-	void (*reset_handler)(void);
+	void (*reset_handler)(struct cmd_fastboot_interface *pi);
 
 	/* A getvar string for the product name
 	   It can have a maximum of 60 characters
@@ -154,10 +155,31 @@ struct cmd_fastboot_interface {
 	   Set by board	*/
 	unsigned int transfer_buffer_size;
 
+	unsigned download_size;
+	unsigned download_bytes;
+	unsigned download_bytes_unpadded;
+	unsigned download_error;
+	unsigned continue_booting;
+	unsigned upload_size;
+	unsigned upload_bytes;
+	unsigned upload_error;
 };
 
 /* Android-style flash naming */
 typedef struct fastboot_ptentry fastboot_ptentry;
+
+#define FB_SEG_MBR		1
+#define FB_SEG_BOOTLOADER	2
+#define FB_SEG_ENV		3
+
+struct dev_partition_ops {
+	const char *name;
+	int (*flash)(struct fastboot_ptentry *ptn, struct cmd_fastboot_interface *pi, char *response);
+	int (*erase)(struct fastboot_ptentry *ptn, struct cmd_fastboot_interface *pi, char *response);
+	int (*upload)(struct fastboot_ptentry *ptn, struct cmd_fastboot_interface *pi, char *response, unsigned size, unsigned is_raw);
+	int (*partion_info)(struct fastboot_ptentry *ptn, int seg, int partition);
+};
+
 
 /* flash partitions are defined in terms of blocks
 ** (flash erase units)
@@ -165,6 +187,7 @@ typedef struct fastboot_ptentry fastboot_ptentry;
 struct fastboot_ptentry {
 	/* The logical name for this partition, null terminated */
 	char name[16];
+	unsigned int dev_index;
 	/* The start wrt the nand part, must be multiple of nand block size */
 	unsigned int start;
 	/* The length of the partition, must be multiple of nand block size */
@@ -172,8 +195,13 @@ struct fastboot_ptentry {
 	/* Controls the details of how operations are done on the partition
 	   See the FASTBOOT_PTENTRY_FLAGS_*'s defined below */
 	unsigned int flags;
-	/* partition id: 0 - normal partition; 1 - boot partition */
-	unsigned int partition_id;
+	/*
+	 * Some cards support switching to boot partition
+	 * This is not related to MBR partitions
+	 * boot_partition: 0 - normal partition; 1 - boot partition,
+	 */
+	unsigned int boot_partition;
+	const struct dev_partition_ops *dev_ops;
 };
 
 struct fastboot_device_info {
@@ -261,6 +289,7 @@ int fastboot_preboot(void);
    Returns 0 on success
    Returns 1 on failure */
 int fastboot_init(struct cmd_fastboot_interface *interface);
+int fastboot_get_rx_buffer(u8 *buf, int max);
 
 /* Cleans up the board specific fastboot */
 void fastboot_shutdown(void);
@@ -310,8 +339,10 @@ int fastboot_getvar(const char *rx_buffer, char *tx_buffer);
 /* The Android-style flash handling */
 
 /* tools to populate and query the partition table */
+void fastboot_clear_device(int dev_index, const struct dev_partition_ops *dev_ops);
 void fastboot_flash_add_ptn(fastboot_ptentry *ptn);
 fastboot_ptentry *fastboot_flash_find_ptn(const char *name);
+fastboot_ptentry *fastboot_flash_find_ptn_len(const char *name, int match_len);
 fastboot_ptentry *fastboot_flash_get_ptn(unsigned n);
 unsigned int fastboot_flash_get_ptn_count(void);
 void fastboot_flash_dump_ptn(void);
@@ -326,7 +357,13 @@ int fastboot_flash_read_ext(fastboot_ptentry *ptn,
 int fastboot_flash_write(fastboot_ptentry *ptn, unsigned extra_per_page,
 				const void *data, unsigned bytes);
 
+int fastboot_init_mmc_sata_ptable(void);
+int fastboot_init_sf_ptable(void);
 
+extern const struct dev_partition_ops part_sata_ops;
+extern const struct dev_partition_ops part_mmc_ops;
+extern const struct dev_partition_ops part_nand_ops;
+extern const struct dev_partition_ops part_sf_ops;
 #else
 
 /* Stubs for when CONFIG_FASTBOOT is not defined */
