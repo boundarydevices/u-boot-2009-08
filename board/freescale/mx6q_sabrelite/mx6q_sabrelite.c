@@ -28,11 +28,8 @@
 #include <asm/errno.h>
 #include <asm/imx-common/boot_mode.h>
 #include <asm/imx-common/iomux-v3.h>
+#include <asm/imx-common/mxc_i2c.h>
 #include <miiphy.h>
-#if CONFIG_I2C_MXC
-#include <i2c.h>
-#include <asm/arch/mxc_i2c.h>
-#endif
 
 #ifdef CONFIG_CMD_MMC
 #include <mmc.h>
@@ -398,6 +395,55 @@ int setup_sata(void)
 }
 #endif
 
+#ifdef CONFIG_I2C_MXC
+#define PC    (PAD_CTL_PKE | PAD_CTL_PUE |		\
+		PAD_CTL_PUS_100K_UP | PAD_CTL_SPEED_MED |	\
+		PAD_CTL_DSE_40ohm | PAD_CTL_HYS |		\
+		PAD_CTL_ODE | PAD_CTL_SRE_FAST)
+
+/* I2C1, SGTL5000 */
+struct i2c_pads_info i2c_pad_info0 = {
+	.scl = {
+		.i2c_mode = NEW_PAD_CTRL(MX6Q_PAD_EIM_D21__I2C1_SCL, PC),
+		.gpio_mode = NEW_PAD_CTRL(MX6Q_PAD_EIM_D21__GPIO_3_21, PC),
+		.gp = GPIO_NUMBER(3, 21)
+	},
+	.sda = {
+		.i2c_mode = NEW_PAD_CTRL(MX6Q_PAD_EIM_D28__I2C1_SDA, PC),
+		.gpio_mode = NEW_PAD_CTRL(MX6Q_PAD_EIM_D28__GPIO_3_28, PC),
+		.gp = GPIO_NUMBER(3, 28)
+	}
+};
+
+/* I2C2 Camera, MIPI */
+struct i2c_pads_info i2c_pad_info1 = {
+	.scl = {
+		.i2c_mode = NEW_PAD_CTRL(MX6Q_PAD_KEY_COL3__I2C2_SCL, PC),
+		.gpio_mode = NEW_PAD_CTRL(MX6Q_PAD_KEY_COL3__GPIO_4_12, PC),
+		.gp = GPIO_NUMBER(4, 12)
+	},
+	.sda = {
+		.i2c_mode = NEW_PAD_CTRL(MX6Q_PAD_KEY_ROW3__I2C2_SDA, PC),
+		.gpio_mode = NEW_PAD_CTRL(MX6Q_PAD_KEY_ROW3__GPIO_4_13, PC),
+		.gp = GPIO_NUMBER(4, 13)
+	}
+};
+
+/* I2C3, J15 - RGB connector */
+struct i2c_pads_info i2c_pad_info2 = {
+	.scl = {
+		.i2c_mode = NEW_PAD_CTRL(MX6Q_PAD_GPIO_5__I2C3_SCL, PC),
+		.gpio_mode = NEW_PAD_CTRL(MX6Q_PAD_GPIO_5__GPIO_1_5, PC),
+		.gp = GPIO_NUMBER(1, 5)
+	},
+	.sda = {
+		.i2c_mode = NEW_PAD_CTRL(MX6Q_PAD_GPIO_16__I2C3_SDA, PC),
+		.gpio_mode = NEW_PAD_CTRL(MX6Q_PAD_GPIO_16__GPIO_7_11, PC),
+		.gp = GPIO_NUMBER(7, 11)
+	}
+};
+#endif
+
 int board_init(void)
 {
 #ifdef CONFIG_MFG
@@ -424,6 +470,11 @@ int board_init(void)
 
 	setup_uart();
 
+#ifdef CONFIG_I2C_MXC
+	setup_i2c(0, CONFIG_SYS_I2C1_SPEED, 0x7f, &i2c_pad_info0);
+	setup_i2c(1, CONFIG_SYS_I2C2_SPEED, 0x7f, &i2c_pad_info1);
+	setup_i2c(2, CONFIG_SYS_I2C3_SPEED, 0x7f, &i2c_pad_info2);
+#endif
 #ifdef CONFIG_CMD_SATA
 	setup_sata();
 #endif
