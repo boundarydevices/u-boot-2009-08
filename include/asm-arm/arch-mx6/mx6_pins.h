@@ -22,7 +22,7 @@
 #ifndef __MACH_IOMUX_MX6Q_H__
 #define __MACH_IOMUX_MX6Q_H__
 
-#include <asm/arch/iomux-v3.h>
+#include <asm/imx-common/iomux-v3.h>
 
 /*
  * various IOMUX alternate output functions (1-7)

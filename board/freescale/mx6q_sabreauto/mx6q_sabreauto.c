@@ -24,8 +24,8 @@
 #include <asm/io.h>
 #include <asm/arch/mx6.h>
 #include <asm/arch/mx6_pins.h>
-#include <asm/arch/iomux-v3.h>
 #include <asm/errno.h>
+#include <asm/imx-common/iomux-v3.h>
 #include <miiphy.h>
 #if defined(CONFIG_VIDEO_MX5)
 #include <linux/list.h>

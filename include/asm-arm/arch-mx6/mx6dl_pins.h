@@ -22,7 +22,7 @@
 #ifndef __MACH_IOMUX_MX6DL_H__
 #define __MACH_IOMUX_MX6DL_H__
 
-#include <asm/arch/iomux-v3.h>
+#include <asm/imx-common/iomux-v3.h>
 
 #define MX6DL_HIGH_DRV		PAD_CTL_DSE_120ohm
 #define MX6DL_DISP_PAD_CLT	MX6DL_HIGH_DRV
