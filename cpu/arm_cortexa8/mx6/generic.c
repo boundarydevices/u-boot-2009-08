@@ -1165,6 +1165,26 @@ int fastboot_check_and_clean_flag()
 }
 #endif
 
+#ifdef CONFIG_I2C_MXC
+/* i2c_num can be from 0 - 2 */
+int enable_i2c_clk(unsigned char enable, unsigned i2c_num)
+{
+	u32 reg;
+	u32 mask;
+
+	if (i2c_num > 2)
+		return -EINVAL;
+	mask = MXC_CCM_CCGR_CG_MASK << ((i2c_num + 3) << 1);
+	reg = __raw_readl(MXC_CCM_CCGR2);
+	if (enable)
+		reg |= mask;
+	else
+		reg &= ~mask;
+	__raw_writel(reg, MXC_CCM_CCGR2);
+	return 0;
+}
+#endif
+
 #ifdef CONFIG_CMD_IMX_DOWNLOAD_MODE
 #define PERSIST_WATCHDOG_RESET_BOOT		(0x10000000)
 /*BOOT_CFG1[7..4] = 0x3 Boot from Serial ROM (I2C/SPI)*/
