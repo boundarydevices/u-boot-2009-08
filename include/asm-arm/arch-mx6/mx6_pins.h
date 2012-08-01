@@ -22,7 +22,7 @@
 #ifndef __MACH_IOMUX_MX6Q_H__
 #define __MACH_IOMUX_MX6Q_H__
 
-#include <asm/arch/iomux-v3.h>
+#include <asm/imx-common/iomux-v3.h>
 
 #define MX6Q_UART_PAD_CTRL	(PAD_CTL_PKE | PAD_CTL_PUE |	\
 		PAD_CTL_PUS_100K_UP | PAD_CTL_SPEED_MED | \

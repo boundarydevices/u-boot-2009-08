@@ -28,8 +28,8 @@
 #include <asm/arch/mx6_secure.h>
 #endif
 #include <asm/arch/mx6dl_pins.h>
-#include <asm/arch/iomux-v3.h>
 #include <asm/errno.h>
+#include <asm/imx-common/iomux-v3.h>
 #ifdef CONFIG_MXC_FEC
 #include <miiphy.h>
 #endif

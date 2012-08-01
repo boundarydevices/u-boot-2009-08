@@ -24,9 +24,9 @@
 #include <asm/io.h>
 #include <asm/arch/mx6.h>
 #include <asm/arch/mx6_pins.h>
-#include <asm/arch/iomux-v3.h>
 #include <asm/errno.h>
 #include <asm/gpio.h>
+#include <asm/imx-common/iomux-v3.h>
 #include <miiphy.h>
 #if CONFIG_I2C_MXC
 #include <i2c.h>
