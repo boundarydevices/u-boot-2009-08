@@ -1,9 +1,15 @@
 /*
- * i2c driver for Freescale mx31
+ * i2c driver for Freescale i.MX series
  *
  * (c) 2007 Pengutronix, Sascha Hauer <s.hauer@pengutronix.de>
+ * (c) 2011 Marek Vasut <marek.vasut@gmail.com>
  *
- * (C) Copyright 2008-2010 Freescale Semiconductor, Inc.
+ * Based on i2c-imx.c from linux kernel:
+ *  Copyright (C) 2005 Torsten Koschorrek <koschorrek at synertronixx.de>
+ *  Copyright (C) 2005 Matthias Blaschke <blaschke at synertronixx.de>
+ *  Copyright (C) 2007 RightHand Technologies, Inc.
+ *  Copyright (C) 2008 Darius Augulis <darius.augulis at teltonika.lt>
+ *
  *
  * See file CREDITS for list of people who contributed to this
  * project.
@@ -25,15 +31,19 @@
  */
 
 #include <common.h>
-#include <asm/arch/mxc_i2c.h>
+#include <asm/arch/imx-regs.h>
+#include <asm/errno.h>
+#include <asm/io.h>
+#include <i2c.h>
+#include <watchdog.h>
 
-#if defined(CONFIG_HARD_I2C)
-
-#define IADR	0x00
-#define IFDR	0x04
-#define I2CR	0x08
-#define I2SR	0x0c
-#define I2DR	0x10
+struct mxc_i2c_regs {
+	uint32_t	iadr;
+	uint32_t	ifdr;
+	uint32_t	i2cr;
+	uint32_t	i2sr;
+	uint32_t	i2dr;
+};
 
 #define I2CR_IEN	(1 << 7)
 #define I2CR_IIEN	(1 << 6)
@@ -44,314 +54,446 @@
 
 #define I2SR_ICF	(1 << 7)
 #define I2SR_IBB	(1 << 5)
+#define I2SR_IAL	(1 << 4)
 #define I2SR_IIF	(1 << 1)
 #define I2SR_RX_NO_AK	(1 << 0)
 
-#undef DEBUG
-
-#ifdef DEBUG
-#define DPRINTF(args...)  printf(args)
-#else
-#define DPRINTF(args...)
+#if defined(CONFIG_HARD_I2C) && !defined(CONFIG_SYS_I2C_BASE)
+#error "define CONFIG_SYS_I2C_BASE to use the mxc_i2c driver"
 #endif
 
-static u16 div[] = { 30, 32, 36, 42, 48, 52, 60, 72, 80, 88, 104, 128, 144,
-	160, 192, 240, 288, 320, 384, 480, 576, 640, 768, 960,
-	1152, 1280, 1536, 1920, 2304, 2560, 3072, 3840
+static u16 i2c_clk_div[50][2] = {
+	{ 22,	0x20 }, { 24,	0x21 }, { 26,	0x22 }, { 28,	0x23 },
+	{ 30,	0x00 }, { 32,	0x24 }, { 36,	0x25 }, { 40,	0x26 },
+	{ 42,	0x03 }, { 44,	0x27 }, { 48,	0x28 }, { 52,	0x05 },
+	{ 56,	0x29 }, { 60,	0x06 }, { 64,	0x2A }, { 72,	0x2B },
+	{ 80,	0x2C }, { 88,	0x09 }, { 96,	0x2D }, { 104,	0x0A },
+	{ 112,	0x2E }, { 128,	0x2F }, { 144,	0x0C }, { 160,	0x30 },
+	{ 192,	0x31 }, { 224,	0x32 }, { 240,	0x0F }, { 256,	0x33 },
+	{ 288,	0x10 }, { 320,	0x34 }, { 384,	0x35 }, { 448,	0x36 },
+	{ 480,	0x13 }, { 512,	0x37 }, { 576,	0x14 }, { 640,	0x38 },
+	{ 768,	0x39 }, { 896,	0x3A }, { 960,	0x17 }, { 1024,	0x3B },
+	{ 1152,	0x18 }, { 1280,	0x3C }, { 1536,	0x3D }, { 1792,	0x3E },
+	{ 1920,	0x1B }, { 2048,	0x3F }, { 2304,	0x1C }, { 2560,	0x1D },
+	{ 3072,	0x1E }, { 3840,	0x1F }
 };
 
-static inline void i2c_reset(unsigned base)
+/*
+ * Calculate and set proper clock divider
+ */
+static uint8_t i2c_imx_get_clk(unsigned int rate)
 {
-	__REG16(base + I2CR) = 0;	/* Reset module */
-	__REG16(base + I2SR) = 0;
-	__REG16(base + I2CR) = I2CR_IEN;
-	udelay(100);
+	unsigned int i2c_clk_rate;
+	unsigned int div;
+	u8 clk_div;
+
+#if defined(CONFIG_MX31)
+	struct clock_control_regs *sc_regs =
+		(struct clock_control_regs *)CCM_BASE;
+
+	/* start the required I2C clock */
+	writel(readl(&sc_regs->cgr0) | (3 << CONFIG_SYS_I2C_CLK_OFFSET),
+		&sc_regs->cgr0);
+#endif
+
+	/* Divider value calculation */
+	i2c_clk_rate = mxc_get_clock(MXC_IPG_PERCLK);
+	div = (i2c_clk_rate + rate - 1) / rate;
+	if (div < i2c_clk_div[0][0])
+		clk_div = 0;
+	else if (div > i2c_clk_div[ARRAY_SIZE(i2c_clk_div) - 1][0])
+		clk_div = ARRAY_SIZE(i2c_clk_div) - 1;
+	else
+		for (clk_div = 0; i2c_clk_div[clk_div][0] < div; clk_div++)
+			;
+
+	/* Store divider value */
+	return clk_div;
 }
 
-#define ST_BUS_IDLE (0 | (I2SR_IBB << 16))
-#define ST_BUS_BUSY (I2SR_IBB | (I2SR_IBB << 16))
-#define ST_BYTE_COMPLETE (I2SR_ICF | (I2SR_ICF << 16))
-#define ST_BYTE_PENDING (0 | (I2SR_ICF << 16))
-#define ST_IIF (I2SR_IIF | (I2SR_IIF << 16))
+/*
+ * Set I2C Bus speed
+ */
+int bus_i2c_set_bus_speed(void *base, int speed)
+{
+	struct mxc_i2c_regs *i2c_regs = (struct mxc_i2c_regs *)base;
+	u8 clk_idx = i2c_imx_get_clk(speed);
+	u8 idx = i2c_clk_div[clk_idx][1];
 
-static unsigned wait_for_sr_state(unsigned base, unsigned state)
+	/* Store divider value */
+	writeb(idx, &i2c_regs->ifdr);
+
+	/* Reset module */
+	writeb(0, &i2c_regs->i2cr);
+	writeb(0, &i2c_regs->i2sr);
+	return 0;
+}
+
+/*
+ * Get I2C Speed
+ */
+unsigned int bus_i2c_get_bus_speed(void *base)
+{
+	struct mxc_i2c_regs *i2c_regs = (struct mxc_i2c_regs *)base;
+	u8 clk_idx = readb(&i2c_regs->ifdr);
+	u8 clk_div;
+
+	for (clk_div = 0; i2c_clk_div[clk_div][1] != clk_idx; clk_div++)
+		;
+
+	return mxc_get_clock(MXC_IPG_PERCLK) / i2c_clk_div[clk_div][0];
+}
+
+#define ST_BUS_IDLE (0 | (I2SR_IBB << 8))
+#define ST_BUS_BUSY (I2SR_IBB | (I2SR_IBB << 8))
+#define ST_IIF (I2SR_IIF | (I2SR_IIF << 8))
+
+static int wait_for_sr_state(struct mxc_i2c_regs *i2c_regs, unsigned state)
 {
 	unsigned sr;
 	ulong elapsed;
 	ulong start_time = get_timer(0);
 	for (;;) {
-		sr = __REG16(base + I2SR);
-		if ((sr & (state >> 16)) == (unsigned short)state)
-			break;
+		sr = readb(&i2c_regs->i2sr);
+		if (sr & I2SR_IAL) {
+			writeb(sr & ~I2SR_IAL, &i2c_regs->i2sr);
+			printf("%s: Arbitration lost sr=%x cr=%x state=%x\n",
+				__func__, sr, readb(&i2c_regs->i2cr), state);
+			return -ERESTART;
+		}
+		if ((sr & (state >> 8)) == (unsigned char)state)
+			return sr;
+		WATCHDOG_RESET();
 		elapsed = get_timer(start_time);
-		if (elapsed > 100) {
-			printf("%s: failed sr=%x cr=%x state=%x\n", __func__,
-					sr, __REG16(base + I2CR), state);
-			return 0;
-		}
-	}
-	DPRINTF("%s:%x\n", __func__, sr);
-	return sr | 0x10000;
-}
-
-static int tx_byte(unsigned base, u8 byte)
-{
-	unsigned sr;
-	__REG16(base + I2SR) = 0;
-	__REG16(base + I2DR) = byte;
-	sr = wait_for_sr_state(base, ST_IIF);
-	if ((!sr) || (sr & I2SR_RX_NO_AK)) {
-		printf("%s: sr=%x byte=%x\n", __func__, sr, byte);
-		return -1;
-	}
-	DPRINTF("%s:%x\n", __func__, byte);
-	return 0;
-}
-
-static void toggle_i2c(unsigned base);
-
-static int i2c_addr(unsigned base, uchar chip, uint addr, int alen)
-{
-	int retry = 0;
-	for (retry = 0; retry < 3; retry++) {
-		if (wait_for_sr_state(base, ST_BUS_IDLE))
-			break;
-		i2c_reset(base);
-		udelay(100000);
-		toggle_i2c(base);
-	}
-	if (retry >= 3) {
-		printf("%s:bus is busy(%x)\n",
-		       __func__, __REG16(base + I2SR));
-		return -1;
-	}
-	__REG16(base + I2CR) = I2CR_IEN | I2CR_MSTA | I2CR_MTX;
-	if (!wait_for_sr_state(base, ST_BUS_BUSY)) {
-		printf("%s:trigger start fail(%x)\n", __func__,
-				__REG16(base + I2SR));
-		__REG16(base + I2CR) = I2CR_IEN;	/* send stop */
-		udelay(1000);
-		i2c_reset(base);
-		toggle_i2c(base);
-		__REG16(base + I2CR) = I2CR_IEN | I2CR_MSTA | I2CR_MTX;
-		if (!wait_for_sr_state(base, ST_BUS_BUSY)) {
-			printf("%s:toggle didn't work(%x)\n", __func__,
-					__REG16(base + I2SR));
-			return -1;
-		}
-	}
-	if (tx_byte(base, chip << 1)) {
-		printf("%s:chip address cycle fail(%x)\n",
-		       __func__, __REG16(base + I2SR));
-		return -1;
-	}
-	while (alen--)
-		if (tx_byte(base, (addr >> (alen * 8)) & 0xff)) {
-			printf("%s:device address cycle fail(%x)\n",
-			       __func__, __REG16(base + I2SR));
-			return -1;
-		}
-	return 0;
-}
-
-int bus_i2c_read(unsigned base, uchar chip, uint addr, int alen, uchar *buf,
-		int len)
-{
-	uint ret;
-	DPRINTF("%s chip: 0x%02x addr: 0x%04x alen: %d len: %d\n",
-		__func__, chip, addr, alen, len);
-
-	if (i2c_addr(base, chip, addr, alen)) {
-		printf("i2c_addr failed\n");
-		/* send stop */
-		__REG16(base + I2CR) = I2CR_IEN | I2CR_TX_NO_AK;
-		return -1;
-	}
-
-	__REG16(base + I2CR) = I2CR_IEN | I2CR_MSTA | I2CR_MTX | I2CR_RSTA;
-
-	if (tx_byte(base, chip << 1 | 1)) {
-		printf("%s:Send 2nd chip address fail(%x)\n",
-		       __func__, __REG16(base + I2SR));
-		/* send stop */
-		__REG16(base + I2CR) = I2CR_IEN | I2CR_TX_NO_AK;
-		return -1;
-	}
-	__REG16(base + I2CR) = I2CR_IEN | I2CR_MSTA |
-		((len <= 1) ? I2CR_TX_NO_AK : 0);
-	ret = __REG16(base + I2DR);	/* dummy read to clear ICF */
-	DPRINTF("CR=%x\n", __REG16(base + I2CR));
-
-	for (;;) {
-		if (!wait_for_sr_state(base, ST_BYTE_COMPLETE)) {
-			printf("%s: fail sr=%x cr=%x, len=%i\n", __func__,
-					__REG16(base + I2SR),
-					__REG16(base + I2CR), len);
-			/* send stop */
-			__REG16(base + I2CR) = I2CR_IEN | I2CR_TX_NO_AK;
-			return -1;
-		}
-		if (len == 2) {
-			__REG16(base + I2CR) = I2CR_IEN | I2CR_MSTA
-					| I2CR_TX_NO_AK;
-		}
-		if (len <= 1) {
-			/* send stop */
-			__REG16(base + I2CR) = I2CR_IEN | I2CR_TX_NO_AK;
-		}
-		ret = __REG16(base + I2DR);
-		DPRINTF("%s:%x\n", __func__, ret);
-		if (len <= 0)
-			break;
-		*buf++ = ret;
-		if (!(--len))
+		if (elapsed > (CONFIG_SYS_HZ / 10))	/* .1 seconds */
 			break;
 	}
-	if (!wait_for_sr_state(base, ST_BUS_IDLE))
-		printf("%s:trigger stop fail\n", __func__);
-	return 0;
+	printf("%s: failed sr=%x cr=%x state=%x\n", __func__,
+			sr, readb(&i2c_regs->i2cr), state);
+	return -ETIMEDOUT;
 }
 
-int bus_i2c_write(unsigned base, uchar chip, uint addr, int alen,
-		const uchar *buf, int len)
-{
-	DPRINTF("%s chip: 0x%02x addr: 0x%04x alen: %d len: %d\n",
-		__func__, chip, addr, alen, len);
-
-	if (i2c_addr(base, chip, addr, alen)) {
-		__REG16(base + I2CR) = I2CR_IEN;	/* send stop */
-		return -1;
-	}
-	while (len--)
-		if (tx_byte(base, *buf++)) {
-			__REG16(base + I2CR) = I2CR_IEN;	/* send stop */
-			return -1;
-		}
-
-	__REG16(base + I2CR) = I2CR_IEN;
-
-	if (!wait_for_sr_state(base, ST_BUS_IDLE))
-		printf("%s:trigger stop fail\n", __func__);
-	return 0;
-}
-
-int bus_i2c_probe(unsigned base, uchar chip)
+static int tx_byte(struct mxc_i2c_regs *i2c_regs, u8 byte)
 {
 	int ret;
-	i2c_reset(base);
-	ret = bus_i2c_write(base, chip, 0, 0, NULL, 0);
-	if (ret)
-		printf("probe failed\n");
+
+	writeb(0, &i2c_regs->i2sr);
+	writeb(byte, &i2c_regs->i2dr);
+	ret = wait_for_sr_state(i2c_regs, ST_IIF);
+	if (ret < 0)
+		return ret;
+	if (ret & I2SR_RX_NO_AK)
+		return -ENODEV;
+	return 0;
+}
+
+/*
+ * Stop I2C transaction
+ */
+static void i2c_imx_stop(struct mxc_i2c_regs *i2c_regs)
+{
+	int ret;
+	unsigned int temp = readb(&i2c_regs->i2cr);
+
+	temp &= ~(I2CR_MSTA | I2CR_MTX);
+	writeb(temp, &i2c_regs->i2cr);
+	ret = wait_for_sr_state(i2c_regs, ST_BUS_IDLE);
+	if (ret < 0)
+		printf("%s:trigger stop failed\n", __func__);
+}
+
+/*
+ * Send start signal, chip address and
+ * write register address
+ */
+static int i2c_init_transfer_(struct mxc_i2c_regs *i2c_regs,
+		uchar chip, uint addr, int alen)
+{
+	unsigned int temp;
+	int ret;
+
+	/* Enable I2C controller */
+	if (!(readb(&i2c_regs->i2cr) & I2CR_IEN)) {
+		writeb(I2CR_IEN, &i2c_regs->i2cr);
+		/* Wait for controller to be stable */
+		udelay(50);
+	}
+	if (readb(&i2c_regs->iadr) == (chip << 1))
+		writeb((chip << 1) ^ 2, &i2c_regs->iadr);
+	writeb(0, &i2c_regs->i2sr);
+	ret = wait_for_sr_state(i2c_regs, ST_BUS_IDLE);
+	if (ret < 0)
+		return ret;
+
+	/* Start I2C transaction */
+	temp = readb(&i2c_regs->i2cr);
+	temp |= I2CR_MSTA;
+	writeb(temp, &i2c_regs->i2cr);
+
+	ret = wait_for_sr_state(i2c_regs, ST_BUS_BUSY);
+	if (ret < 0)
+		return ret;
+
+	temp |= I2CR_MTX | I2CR_TX_NO_AK;
+	writeb(temp, &i2c_regs->i2cr);
+
+	/* write slave address */
+	ret = tx_byte(i2c_regs, chip << 1);
+	if (ret < 0)
+		return ret;
+
+	while (alen--) {
+		ret = tx_byte(i2c_regs, (addr >> (alen * 8)) & 0xff);
+		if (ret < 0)
+			return ret;
+	}
+	return 0;
+}
+
+static int i2c_idle_bus(void *base);
+
+static int i2c_init_transfer(struct mxc_i2c_regs *i2c_regs,
+		uchar chip, uint addr, int alen)
+{
+	int retry;
+	int ret;
+	for (retry = 0; retry < 3; retry++) {
+		ret = i2c_init_transfer_(i2c_regs, chip, addr, alen);
+		if (ret >= 0)
+			return 0;
+		i2c_imx_stop(i2c_regs);
+		if (ret == -ENODEV)
+			return ret;
+
+		printf("%s: failed for chip 0x%x retry=%d\n", __func__, chip,
+				retry);
+		if (ret != -ERESTART)
+			writeb(0, &i2c_regs->i2cr);	/* Disable controller */
+		udelay(100);
+		if (i2c_idle_bus(i2c_regs) < 0)
+			break;
+	}
+	printf("%s: give up i2c_regs=%p\n", __func__, i2c_regs);
 	return ret;
 }
 
-int g_bus;
+/*
+ * Read data from I2C device
+ */
+int bus_i2c_read(void *base, uchar chip, uint addr, int alen, uchar *buf,
+		int len)
+{
+	int ret;
+	unsigned int temp;
+	int i;
+	struct mxc_i2c_regs *i2c_regs = (struct mxc_i2c_regs *)base;
+
+	ret = i2c_init_transfer(i2c_regs, chip, addr, alen);
+	if (ret < 0)
+		return ret;
+
+	temp = readb(&i2c_regs->i2cr);
+	temp |= I2CR_RSTA;
+	writeb(temp, &i2c_regs->i2cr);
+
+	ret = tx_byte(i2c_regs, (chip << 1) | 1);
+	if (ret < 0) {
+		i2c_imx_stop(i2c_regs);
+		return ret;
+	}
+
+	/* setup bus to read data */
+	temp = readb(&i2c_regs->i2cr);
+	temp &= ~(I2CR_MTX | I2CR_TX_NO_AK);
+	if (len == 1)
+		temp |= I2CR_TX_NO_AK;
+	writeb(temp, &i2c_regs->i2cr);
+	writeb(0, &i2c_regs->i2sr);
+	readb(&i2c_regs->i2dr);		/* dummy read to clear ICF */
+
+	/* read data */
+	for (i = 0; i < len; i++) {
+		ret = wait_for_sr_state(i2c_regs, ST_IIF);
+		if (ret < 0) {
+			i2c_imx_stop(i2c_regs);
+			return ret;
+		}
+
+		/*
+		 * It must generate STOP before read I2DR to prevent
+		 * controller from generating another clock cycle
+		 */
+		if (i == (len - 1)) {
+			i2c_imx_stop(i2c_regs);
+		} else if (i == (len - 2)) {
+			temp = readb(&i2c_regs->i2cr);
+			temp |= I2CR_TX_NO_AK;
+			writeb(temp, &i2c_regs->i2cr);
+		}
+		writeb(0, &i2c_regs->i2sr);
+		buf[i] = readb(&i2c_regs->i2dr);
+	}
+	i2c_imx_stop(i2c_regs);
+	return 0;
+}
+
+/*
+ * Write data to I2C device
+ */
+int bus_i2c_write(void *base, uchar chip, uint addr, int alen,
+		const uchar *buf, int len)
+{
+	int ret;
+	int i;
+	struct mxc_i2c_regs *i2c_regs = (struct mxc_i2c_regs *)base;
+
+	ret = i2c_init_transfer(i2c_regs, chip, addr, alen);
+	if (ret < 0)
+		return ret;
+
+	for (i = 0; i < len; i++) {
+		ret = tx_byte(i2c_regs, buf[i]);
+		if (ret < 0)
+			break;
+	}
+	i2c_imx_stop(i2c_regs);
+	return ret;
+}
 
 struct i2c_parms {
-	unsigned base;
-	void *toggle_data;
-	toggle_i2c_fn toggle_fn;
+	void *base;
+	void *idle_bus_data;
+	int (*idle_bus_fn)(void *p);
 };
 
-struct i2c_parms g_parms[3];
+struct sram_data {
+	unsigned curr_i2c_bus;
+	struct i2c_parms i2c_data[3];
+};
 
-void bus_i2c_init(unsigned base, int speed, int unused,
-		toggle_i2c_fn toggle_fn, void *toggle_data)
+/*
+ * For SPL boot some boards need i2c before SDRAM is initialized so force
+ * variables to live in SRAM
+ */
+static struct sram_data __attribute__((section(".data"))) srdata;
+
+void *get_base(void)
 {
-	int freq;
+#ifdef CONFIG_SYS_I2C_BASE
+#ifdef CONFIG_I2C_MULTI_BUS
+	void *ret = srdata.i2c_data[srdata.curr_i2c_bus].base;
+	if (ret)
+		return ret;
+#endif
+	return (void *)CONFIG_SYS_I2C_BASE;
+#elif defined(CONFIG_I2C_MULTI_BUS)
+	return srdata.i2c_data[srdata.curr_i2c_bus].base;
+#else
+	return srdata.i2c_data[0].base;
+#endif
+}
+
+static struct i2c_parms *i2c_get_parms(void *base)
+{
 	int i = 0;
-	struct i2c_parms *p = g_parms;
+	struct i2c_parms *p = srdata.i2c_data;
+	while (i < ARRAY_SIZE(srdata.i2c_data)) {
+		if (p->base == base)
+			return p;
+		p++;
+		i++;
+	}
+	printf("Invalid I2C base: %p\n", base);
+	return NULL;
+}
+
+static int i2c_idle_bus(void *base)
+{
+	struct i2c_parms *p = i2c_get_parms(base);
+	if (p && p->idle_bus_fn)
+		return p->idle_bus_fn(p->idle_bus_data);
+	return 0;
+}
+
+#ifdef CONFIG_I2C_MULTI_BUS
+unsigned int i2c_get_bus_num(void)
+{
+	return srdata.curr_i2c_bus;
+}
+
+int i2c_set_bus_num(unsigned bus_idx)
+{
+	if (bus_idx >= ARRAY_SIZE(srdata.i2c_data))
+		return -1;
+	if (!srdata.i2c_data[bus_idx].base)
+		return -1;
+	srdata.curr_i2c_bus = bus_idx;
+	return 0;
+}
+#endif
+
+int i2c_read(uchar chip, uint addr, int alen, uchar *buf, int len)
+{
+	return bus_i2c_read(get_base(), chip, addr, alen, buf, len);
+}
+
+int i2c_write(uchar chip, uint addr, int alen, uchar *buf, int len)
+{
+	return bus_i2c_write(get_base(), chip, addr, alen, buf, len);
+}
+
+/*
+ * Test if a chip at a given address responds (probe the chip)
+ */
+int i2c_probe(uchar chip)
+{
+	return bus_i2c_write(get_base(), chip, 0, 0, NULL, 0);
+}
+
+void bus_i2c_init(void *base, int speed, int unused,
+		int (*idle_bus_fn)(void *p), void *idle_bus_data)
+{
+	int i = 0;
+	struct i2c_parms *p = srdata.i2c_data;
 	if (!base)
 		return;
 	for (;;) {
 		if (!p->base || (p->base == base)) {
 			p->base = base;
-			p->toggle_data = toggle_data;
-			p->toggle_fn = toggle_fn;
+			if (idle_bus_fn) {
+				p->idle_bus_fn = idle_bus_fn;
+				p->idle_bus_data = idle_bus_data;
+			}
 			break;
 		}
 		p++;
 		i++;
-		if (i >= ARRAY_SIZE(g_parms))
+		if (i >= ARRAY_SIZE(srdata.i2c_data))
 			return;
 	}
-#ifdef CONFIG_MX31
-	freq = mx31_get_ipg_clk();
-#else
-	freq = mxc_get_clock(MXC_IPG_PERCLK);
-#endif
-	for (i = 0; i < 0x1f; i++)
-		if (freq / div[i] <= speed)
-			break;
-
-	DPRINTF("%s: root clock: %d, speed: %d div: %x\n",
-		__func__, freq, speed, i);
-
-	__REG16(base + IFDR) = i;
-	i2c_reset(base);
+	bus_i2c_set_bus_speed(base, speed);
 }
 
-static struct i2c_parms *i2c_get_parms(unsigned module_base)
+/*
+ * Init I2C Bus
+ */
+void i2c_init(int speed, int unused)
 {
-	int i = 0;
-	struct i2c_parms *p = g_parms;
-	while (i < ARRAY_SIZE(g_parms)) {
-		if (p->base == module_base)
-			return p;
-		p++;
-		i++;
-	}
-	printf("Invalid I2C base: 0x%x\n", module_base);
-	return NULL;
+	bus_i2c_init(get_base(), speed, unused, NULL, NULL);
 }
 
-static void toggle_i2c(unsigned base)
+/*
+ * Set I2C Speed
+ */
+int i2c_set_bus_speed(unsigned int speed)
 {
-	struct i2c_parms *p = i2c_get_parms(base);
-	if (!p)
-		return;
-	if (p->toggle_fn)
-		p->toggle_fn(p->toggle_data);
+	return bus_i2c_set_bus_speed(get_base(), speed);
 }
 
-int i2c_get_bus_num(void)
+/*
+ * Get I2C Speed
+ */
+unsigned int i2c_get_bus_speed(void)
 {
-	return g_bus;
+	return bus_i2c_get_bus_speed(get_base());
 }
-
-int i2c_set_bus_num(unsigned bus_idx)
-{
-	if (bus_idx >= ARRAY_SIZE(g_parms))
-		return -1;
-	if (!g_parms[bus_idx].base)
-		return -1;
-	g_bus = bus_idx;
-	return 0;
-}
-
-int i2c_read(uchar chip, uint addr, int alen, uchar *buf, int len)
-{
-	return bus_i2c_read(g_parms[g_bus].base, chip, addr, alen, buf, len);
-}
-
-int i2c_write(uchar chip, uint addr, int alen, uchar *buf, int len)
-{
-	return bus_i2c_write(g_parms[g_bus].base, chip, addr, alen, buf, len);
-}
-
-int i2c_probe(uchar chip)
-{
-	return bus_i2c_probe(g_parms[g_bus].base, chip);
-}
-
-void i2c_init(int speed, int slave_addr)
-{
-	struct i2c_parms *p = &g_parms[g_bus];
-	unsigned base = p->base;
-#ifdef CONFIG_SYS_I2C_PORT
-	if (!base)
-		base = CONFIG_SYS_I2C_PORT;
-#endif
-	bus_i2c_init(base, speed, slave_addr, p->toggle_fn, p->toggle_data);
-}
-#endif				/* CONFIG_HARD_I2C */
