@@ -691,6 +691,7 @@ struct iomuxc_base_regs {
 };
 
 int enable_sata_clock(void);
+int enable_i2c_clk(unsigned char enable, unsigned i2c_num);
 extern unsigned int mxc_get_clock(enum mxc_clock clk);
 extern unsigned int get_board_rev(void);
 extern int is_soc_rev(int rev);
