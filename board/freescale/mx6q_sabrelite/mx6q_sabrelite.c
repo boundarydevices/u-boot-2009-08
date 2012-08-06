@@ -164,10 +164,21 @@ void board_mmu_init(void)
 }
 #endif
 
+static const unsigned char col_lookup[] = {9, 10, 11, 8, 12, 9, 9, 9};
+static const unsigned char bank_lookup[] = {3, 2};
+
 int dram_init(void)
 {
+	unsigned mdctl = readl(MMDC_P0_BASE_ADDR + 0x000);
+	unsigned mdmisc = readl(MMDC_P0_BASE_ADDR + 0x018);
+	int bits = 11 + 0 + 0 + 1; 	/* row+col+bank+width */
+	bits += (mdctl >> 24) & 7;	/* row */
+	bits += col_lookup[(mdctl >> 20) & 7];	/* col */
+	bits += bank_lookup[(mdmisc >> 5) & 1];	/* bank */
+	bits += (mdctl >> 16) & 3;	/* width */
+	bits += (mdctl >> 30) & 1;	/* cs1 enabled*/
 	gd->bd->bi_dram[0].start = PHYS_SDRAM_1;
-	gd->bd->bi_dram[0].size = PHYS_SDRAM_1_SIZE;
+	gd->bd->bi_dram[0].size = 1 << bits;
 	return 0;
 }
 
