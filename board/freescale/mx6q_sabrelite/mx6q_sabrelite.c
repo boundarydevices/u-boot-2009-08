@@ -186,10 +186,10 @@ int dram_init(void)
 static void setup_uart(void)
 {
 	/* UART1 TXD */
-	mxc_iomux_v3_setup_pad(MX6Q_PAD_SD3_DAT6__UART1_TXD);
+	mxc_iomux_v3_setup_pad(MX6Q_PAD_SD3_DAT7__UART1_TXD);
 
 	/* UART1 RXD */
-	mxc_iomux_v3_setup_pad(MX6Q_PAD_SD3_DAT7__UART1_RXD);
+	mxc_iomux_v3_setup_pad(MX6Q_PAD_SD3_DAT6__UART1_RXD);
 
 	/* UART2 TXD */
 	mxc_iomux_v3_setup_pad(MX6Q_PAD_EIM_D26__UART2_TXD);
