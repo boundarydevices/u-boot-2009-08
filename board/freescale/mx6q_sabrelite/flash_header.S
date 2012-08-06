@@ -129,8 +129,29 @@ MXC_DCD_ITEM(54, MMDC_P0_BASE_ADDR + 0x02c, 0x000026D2)
 MXC_DCD_ITEM(55, MMDC_P0_BASE_ADDR + 0x030, 0x005B0E21)
 MXC_DCD_ITEM(56, MMDC_P0_BASE_ADDR + 0x008, 0x09444040)
 MXC_DCD_ITEM(57, MMDC_P0_BASE_ADDR + 0x004, 0x00025576)
-MXC_DCD_ITEM(58, MMDC_P0_BASE_ADDR + 0x040, 0x00000027)
-MXC_DCD_ITEM(59, MMDC_P0_BASE_ADDR + 0x000, 0x831A0000)
+
+#define CONFIG_DDR_64BIT
+//#define CONFIG_DDR_32BIT
+//#define CONFIG_DDR_16BIT
+
+#ifdef CONFIG_DDR_64BIT
+//last address is  (1<<28 (base) + 1<<30  - 1)  / (1<<25) = 1<<3 + 1<<5 - 1 = 8 + 0x20 -1 = 0x27
+MXC_DCD_ITEM(58, MMDC_P0_BASE_ADDR + 0x040, 0x00000027)	//MDASP, CS0_END
+MXC_DCD_ITEM(59, MMDC_P0_BASE_ADDR + 0x000, 0x831A0000)	//MDCTL, CS0 enable, CS1 disabled, row=14, col=10, burst=8, width=64bit
+//row+col+bank+width=14+10+3+3=30 = 1G
+#endif
+#ifdef CONFIG_DDR_32BIT
+//last address is  (1<<28 (base) + 1<<29  - 1)  / (1<<25) = 1<<3 + 1<<4 - 1 = 8 + 0x10 -1 = 0x17
+MXC_DCD_ITEM(58, MMDC_P0_BASE_ADDR + 0x040, 0x00000017)	//MDASP, CS0_END
+MXC_DCD_ITEM(59, MMDC_P0_BASE_ADDR + 0x000, 0x83190000)	//MDCTL, CS0 enable, CS1 disabled, row=14, col=10, burst=8, width=32bit
+//row+col+bank+width=14+10+3+2=29 = 512M
+#endif
+#ifdef CONFIG_DDR_16BIT
+//last address is  (1<<28 (base) + 1<<28  - 1)  / (1<<25) = 1<<3 + 1<<3 - 1 = 8 + 8 -1 = 0x0f
+MXC_DCD_ITEM(58, MMDC_P0_BASE_ADDR + 0x040, 0x0000000f)	//MDASP, CS0_END
+MXC_DCD_ITEM(59, MMDC_P0_BASE_ADDR + 0x000, 0x83180000)	//MDCTL, CS0 enable, CS1 disabled, row=14, col=10, burst=8, width=32bit
+//row+col+bank+width=14+10+3+1=28 = 256M
+#endif
 
 MXC_DCD_ITEM(60, MMDC_P0_BASE_ADDR + 0x01c, 0x04088032)
 MXC_DCD_ITEM(61, MMDC_P0_BASE_ADDR + 0x01c, 0x0408803A)
