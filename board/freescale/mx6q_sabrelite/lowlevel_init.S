@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Freescale Semiconductor, Inc.
+ * Copyright (C) 2010-2011 Freescale Semiconductor, Inc.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -130,17 +130,22 @@ d_inv_loop:
 #endif
 
 	/* Restore the default values in the Gate registers */
-	ldr r1, =0xFFFFFFFF
 	ldr r0, CCM_BASE_ADDR_W
+	ldr r1, =0xC0003F
 	str r1, [r0, #CLKCTL_CCGR0]
+	ldr r1, =0x30FC03
 	str r1, [r0, #CLKCTL_CCGR1]
+	ldr r1, =0xFFFC000
 	str r1, [r0, #CLKCTL_CCGR2]
+	ldr r1, =0x3FF00000
 	str r1, [r0, #CLKCTL_CCGR3]
+	ldr r1, =0xFFF300
 	str r1, [r0, #CLKCTL_CCGR4]
+	ldr r1, =0xF0000C3
 	str r1, [r0, #CLKCTL_CCGR5]
+//	ldr r1, =0x3FC
+	ldr r1, =0x3c3
 	str r1, [r0, #CLKCTL_CCGR6]
-	str r1, [r0, #CLKCTL_CCGR7]
-
 .endm
 
 .section ".text.init", "x"
