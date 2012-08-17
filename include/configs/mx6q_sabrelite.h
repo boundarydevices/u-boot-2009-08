@@ -150,12 +150,6 @@
 				"done ; " \
 			"done\0" \
 		"bootfile=_BOOT_FILE_PATH_IN_TFTP_\0" \
-		"bootsd0=mw.l 0x020d8040 0x3040 && " \
-			"mw.l 0x020d8044 0x10000000 && " \
-			"reset\0" \
-		"bootsd1=mw.l 0x020d8040 0x3840 && " \
-			"mw.l 0x020d8044 0x10000000 && " \
-			"reset\0" \
 		"nfsroot=_ROOTFS_PATH_IN_NFS_\0"
 
 
