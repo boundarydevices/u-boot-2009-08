@@ -258,19 +258,5 @@ void mxc_iomux_set_gpr_register(int group, int start_bit, int num_bits, int valu
  * Initialise the iomux controller
  */
 void mxc_iomux_v3_init(void *iomux_v3_base);
-
-
-struct i2c_pin_ctrl {
-	iomux_v3_cfg_t i2c_mode;
-	iomux_v3_cfg_t gpio_mode;
-	unsigned char gp;
-	unsigned char spare;
-};
-
-struct i2c_pads_info {
-	struct i2c_pin_ctrl scl;
-	struct i2c_pin_ctrl sda;
-};
-
 #endif /* __MACH_IOMUX_V3_H__*/
 

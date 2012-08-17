@@ -696,13 +696,6 @@ extern unsigned int get_board_rev(void);
 extern int is_soc_rev(int rev);
 extern enum boot_device get_boot_device(void);
 
-#define GPIO_NUMBER(port, offset) (((port - 1) << 5) | offset)
-void gpio_set_input(unsigned gp);
-unsigned gpio_get_value(unsigned gp);
-void gpio_set_value(unsigned gp, unsigned val);
-void gpio_set_output_val(unsigned gp, unsigned val);
-
-void mx6_setup_i2c(unsigned i2c_index, int speed, int slave_addr, void *p);
 #endif /* __ASSEMBLER__*/
 
 #endif /*  __ASM_ARCH_MXC_MX6_H__ */

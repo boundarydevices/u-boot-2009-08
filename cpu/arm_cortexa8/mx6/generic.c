@@ -23,7 +23,6 @@
 #include <common.h>
 #include <asm/arch/mx6.h>
 #include <asm/arch/regs-anadig.h>
-#include <asm/arch/iomux-v3.h>
 #include <asm/errno.h>
 #include <asm/io.h>
 #include "crm_regs.h"
@@ -39,113 +38,6 @@
 #endif
 
 #include <usb/regs-usbphy-mx6.h>
-
-unsigned gp_base[] = {GPIO1_BASE_ADDR, GPIO2_BASE_ADDR, GPIO3_BASE_ADDR,
-	GPIO4_BASE_ADDR, GPIO5_BASE_ADDR, GPIO6_BASE_ADDR, GPIO7_BASE_ADDR};
-
-void gpio_set_input(unsigned gp)
-{
-	unsigned reg, base;
-	unsigned mask = (1 << (gp & 0x1f));
-	if ((gp >> 5) >= ARRAY_SIZE(gp_base))
-		return;
-	base = gp_base[gp >> 5];
-	reg = readl(base + GPIO_GDIR);
-	reg &= ~mask;           /* configure GPIO line as input */
-	writel(reg, base + GPIO_GDIR);
-}
-
-unsigned gpio_get_value(unsigned gp)
-{
-	unsigned reg, base;
-	if ((gp >> 5) >= ARRAY_SIZE(gp_base))
-		return 0;
-	base = gp_base[gp >> 5];
-	reg = readl(base + GPIO_PSR);
-	return (reg >> (gp & 0x1f)) & 1;
-}
-
-void gpio_set_value(unsigned gp, unsigned val)
-{
-	unsigned reg, base;
-	unsigned mask = 1 << (gp & 0x1f);
-	if ((gp >> 5) >= ARRAY_SIZE(gp_base))
-		return;
-	base = gp_base[gp >> 5];
-	reg = readl(base + GPIO_DR);
-	if (val & 1)
-		reg |= mask;    /* set high */
-	else
-		reg &= ~mask;   /* clear low */
-	writel(reg, base + GPIO_DR);
-}
-
-void gpio_set_output_val(unsigned gp, unsigned val)
-{
-	unsigned reg, base;
-	unsigned mask = (1 << (gp & 0x1f));
-	if ((gp >> 5) >= ARRAY_SIZE(gp_base))
-		return;
-	base = gp_base[gp >> 5];
-	reg = readl(base + GPIO_DR);
-	if (val & 1)
-		reg |= mask;    /* set high */
-	else
-		reg &= ~mask;   /* clear low */
-	writel(reg, base + GPIO_DR);
-
-	reg = readl(base + GPIO_GDIR);
-	reg |= mask;            /* configure GPIO line as output */
-	writel(reg, base + GPIO_GDIR);
-}
-
-#ifdef CONFIG_I2C_MXC
-#include <asm/arch/mxc_i2c.h>
-static void toggle_i2c(void *priv)
-{
-	struct i2c_pads_info *p = (struct i2c_pads_info *)priv;
-	int i;
-	gpio_set_input(p->sda.gp);
-	gpio_set_input(p->scl.gp);
-
-	mxc_iomux_v3_setup_pad(p->sda.gpio_mode);
-	mxc_iomux_v3_setup_pad(p->scl.gpio_mode);
-
-	printf("%s sda=%i scl=%i sda.gp=0x%x scl.gp=0x%x\n", __func__,
-		gpio_get_value(p->sda.gp), gpio_get_value(p->scl.gp),
-		p->sda.gp, p->scl.gp);
-	/* Send high and low on the SCL line */
-	for (i = 0; i < 9; i++) {
-		gpio_set_output_val(p->scl.gp, 0);
-		udelay(20);
-		gpio_set_input(p->scl.gp);
-		udelay(10);
-		printf("%s sda=%i scl=%i\n", __func__,
-			gpio_get_value(p->sda.gp), gpio_get_value(p->scl.gp));
-		udelay(10);
-	}
-	mxc_iomux_v3_setup_pad(p->sda.i2c_mode);
-	mxc_iomux_v3_setup_pad(p->scl.i2c_mode);
-}
-
-const unsigned i2c_bases[] = {
-	I2C1_BASE_ADDR,
-	I2C2_BASE_ADDR,
-	I2C3_BASE_ADDR
-};
-
-void mx6_setup_i2c(unsigned i2c_index, int speed, int slave_addr, void *p)
-{
-	unsigned reg;
-	mxc_iomux_v3_setup_pad(((struct i2c_pads_info *)p)->sda.i2c_mode);
-	mxc_iomux_v3_setup_pad(((struct i2c_pads_info *)p)->scl.i2c_mode);
-	/* Enable i2c clock */
-	reg = readl(CCM_BASE_ADDR + CLKCTL_CCGR2);
-	reg |= 1 << ((i2c_index + 3) << 1);
-	writel(reg, CCM_BASE_ADDR + CLKCTL_CCGR2);
-	bus_i2c_init(i2c_bases[i2c_index], speed, slave_addr, toggle_i2c, p);
-}
-#endif
 
 enum pll_clocks {
 	CPU_PLL1,	/* System PLL */

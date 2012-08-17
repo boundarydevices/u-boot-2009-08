@@ -66,7 +66,68 @@
 #endif
 #include <micrel.h>
 
+#define GPIO_NUMBER(port, offset) (((port - 1) << 5) | offset)
+
 DECLARE_GLOBAL_DATA_PTR;
+
+unsigned gp_base[] = {GPIO1_BASE_ADDR, GPIO2_BASE_ADDR, GPIO3_BASE_ADDR,
+	GPIO4_BASE_ADDR, GPIO5_BASE_ADDR, GPIO6_BASE_ADDR, GPIO7_BASE_ADDR};
+
+void gpio_set_input(unsigned gp)
+{
+	unsigned reg, base;
+	unsigned mask = (1 << (gp & 0x1f));
+	if ((gp >> 5) >= ARRAY_SIZE(gp_base))
+		return;
+	base = gp_base[gp >> 5];
+	reg = readl(base + GPIO_GDIR);
+	reg &= ~mask;		/* configure GPIO line as input */
+	writel(reg, base + GPIO_GDIR);
+}
+
+unsigned gpio_get_value(unsigned gp)
+{
+	unsigned reg, base;
+	if ((gp >> 5) >= ARRAY_SIZE(gp_base))
+		return 0;
+	base = gp_base[gp >> 5];
+	reg = readl(base + GPIO_PSR);
+	return (reg >> (gp & 0x1f)) & 1;
+}
+
+void gpio_set_value(unsigned gp, unsigned val)
+{
+	unsigned reg, base;
+	unsigned mask = 1 << (gp & 0x1f);
+	if ((gp >> 5) >= ARRAY_SIZE(gp_base))
+		return;
+	base = gp_base[gp >> 5];
+	reg = readl(base + GPIO_DR);
+	if (val & 1)
+		reg |= mask;	/* set high */
+	else
+		reg &= ~mask;	/* clear low */
+	writel(reg, base + GPIO_DR);
+}
+
+void gpio_set_output_val(unsigned gp, unsigned val)
+{
+	unsigned reg, base;
+	unsigned mask = (1 << (gp & 0x1f));
+	if ((gp >> 5) >= ARRAY_SIZE(gp_base))
+		return;
+	base = gp_base[gp >> 5];
+	reg = readl(base + GPIO_DR);
+	if (val & 1)
+		reg |= mask;	/* set high */
+	else
+		reg &= ~mask;	/* clear low */
+	writel(reg, base + GPIO_DR);
+
+	reg = readl(base + GPIO_GDIR);
+	reg |= mask;		/* configure GPIO line as output */
+	writel(reg, base + GPIO_GDIR);
+}
 
 static u32 system_rev;
 static enum boot_device boot_dev;
@@ -359,47 +420,6 @@ u32 get_ddr_delay(struct fsl_esdhc_cfg *cfg)
 
 #endif
 
-#ifdef CONFIG_I2C_MXC
-struct i2c_pads_info i2c_pad_info0 = {
-	.scl = {
-		.i2c_mode = MX6Q_PAD_EIM_D21__I2C1_SCL,
-		.gpio_mode = MX6Q_PAD_EIM_D21__GPIO_3_21,
-		.gp = GPIO_NUMBER(3, 21)
-	},
-	.sda = {
-		.i2c_mode = MX6Q_PAD_EIM_D28__I2C1_SDA,
-		.gpio_mode = MX6Q_PAD_EIM_D28__GPIO_3_28,
-		.gp = GPIO_NUMBER(3, 28)
-	}
-};
-
-struct i2c_pads_info i2c_pad_info1 = {
-	.scl = {
-		.i2c_mode = MX6Q_PAD_KEY_COL3__I2C2_SCL,
-		.gpio_mode = MX6Q_PAD_KEY_COL3__GPIO_4_12,
-		.gp = GPIO_NUMBER(4, 12)
-	},
-	.sda = {
-		.i2c_mode = MX6Q_PAD_KEY_ROW3__I2C2_SDA,
-		.gpio_mode = MX6Q_PAD_KEY_ROW3__GPIO_4_13,
-		.gp = GPIO_NUMBER(4, 13)
-	}
-};
-
-struct i2c_pads_info i2c_pad_info2 = {
-	.scl = {
-		.i2c_mode = MX6Q_PAD_GPIO_5__I2C3_SCL,
-		.gpio_mode = MX6Q_PAD_GPIO_5__GPIO_1_5,
-		.gp = GPIO_NUMBER(1, 5)
-	},
-	.sda = {
-		.i2c_mode = MX6Q_PAD_GPIO_16__I2C3_SDA,
-		.gpio_mode = MX6Q_PAD_GPIO_16__GPIO_7_11,
-		.gp = GPIO_NUMBER(7, 11)
-	}
-};
-#endif
-
 /* Disable wl1271 for Nitrogen6w */
 iomux_v3_cfg_t wl12xx_pads[] = {
 	(MX6Q_PAD_NANDF_CS1__GPIO_6_14 & ~MUX_PAD_CTRL_MASK) | MUX_PAD_CTRL(0x1b0b0),
@@ -462,14 +482,6 @@ int board_init(void)
 
 	setup_uart();
 
-#ifdef CONFIG_I2C_MXC
-	mx6_setup_i2c(0, CONFIG_SYS_I2C_SPEED, CONFIG_SYS_I2C_SLAVE,
-			&i2c_pad_info0);
-	mx6_setup_i2c(1, CONFIG_SYS_I2C_SPEED, CONFIG_SYS_I2C_SLAVE,
-			&i2c_pad_info1);
-	mx6_setup_i2c(2, CONFIG_SYS_I2C_SPEED, CONFIG_SYS_I2C_SLAVE,
-			&i2c_pad_info2);
-#endif
 #ifdef CONFIG_CMD_SATA
 	setup_sata();
 #endif
