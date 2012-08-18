@@ -249,6 +249,13 @@ LIBS += libfdt/libfdt.a
 LIBS += api/libapi.a
 LIBS += post/libpost.a
 
+ifeq ($(SOC),mx53)
+LIBS += cpu/$(CPU)/imx-common/libimx-common.a
+endif
+ifeq ($(SOC),mx6)
+LIBS += cpu/$(CPU)/imx-common/libimx-common.a
+endif
+
 LIBS := $(addprefix $(obj),$(LIBS))
 .PHONY : $(LIBS) $(TIMESTAMP_FILE) $(VERSION_FILE)
 
