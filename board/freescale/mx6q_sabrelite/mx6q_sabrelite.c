@@ -26,7 +26,7 @@
 #include <asm/arch/mx6_pins.h>
 #include <asm/arch/iomux-v3.h>
 #include <asm/errno.h>
-#include <asm/imx-common/resetmode.h>
+#include <asm/imx-common/boot_mode.h>
 #include <miiphy.h>
 #if CONFIG_I2C_MXC
 #include <i2c.h>
@@ -613,8 +613,8 @@ int check_recovery_cmd_file(void)
 }
 #endif
 
-#ifdef CONFIG_CMD_RESETMODE
-static const struct reset_mode board_reset_modes[] = {
+#ifdef CONFIG_CMD_BMODE
+static const struct boot_mode board_boot_modes[] = {
 	/* 4 bit bus width */
 	{"mmc0",	MAKE_CFGVAL(0x40, 0x30, 0x00, 0x00)},
 	{"mmc1",	MAKE_CFGVAL(0x40, 0x38, 0x00, 0x00)},
@@ -624,8 +624,8 @@ static const struct reset_mode board_reset_modes[] = {
 
 int board_late_init(void)
 {
-#ifdef CONFIG_CMD_RESETMODE
-	add_board_resetmodes(board_reset_modes);
+#ifdef CONFIG_CMD_BMODE
+	add_board_boot_modes(board_boot_modes);
 #endif
 	return 0;
 }

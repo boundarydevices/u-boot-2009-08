@@ -27,9 +27,9 @@
 #include <asm/errno.h>
 #include <asm/io.h>
 #include <asm/arch/imx-regs.h>
-#include <asm/imx-common/resetmode.h>
+#include <asm/imx-common/boot_mode.h>
 
-void reset_mode_apply(unsigned cfg_val)
+void boot_mode_apply(unsigned cfg_val)
 {
 	unsigned reg;
 	struct src_regs *psrc = (struct src_regs *)SRC_BASE_ADDR;
@@ -47,7 +47,7 @@ void reset_mode_apply(unsigned cfg_val)
  * After reset, if GPR10[28] is 1, ROM will copy GPR9[25:0]
  * to SBMR1, which will determine the boot device.
  */
-const struct reset_mode soc_reset_modes[] = {
+const struct boot_mode soc_boot_modes[] = {
 	{"normal",	MAKE_CFGVAL(0x00, 0x00, 0x00, 0x00)},
 	/* reserved value should start rom usb */
 	{"usb",		MAKE_CFGVAL(0x01, 0x00, 0x00, 0x00)},

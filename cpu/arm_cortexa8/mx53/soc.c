@@ -27,9 +27,9 @@
 #include <asm/arch/imx-regs.h>
 #include <asm/errno.h>
 #include <asm/io.h>
-#include <asm/imx-common/resetmode.h>
+#include <asm/imx-common/boot_mode.h>
 
-void reset_mode_apply(unsigned cfg_val)
+void boot_mode_apply(unsigned cfg_val)
 {
 	writel(cfg_val, &((struct srtc_regs *)SRTC_BASE_ADDR)->lpgr);
 }
@@ -40,7 +40,7 @@ void reset_mode_apply(unsigned cfg_val)
  * If bit 28 of LPGR is set upon watchdog reset,
  * bits[25:0] of LPGR will move to SBMR.
  */
-const struct reset_mode soc_reset_modes[] = {
+const struct boot_mode soc_boot_modes[] = {
 	{"normal",	MAKE_CFGVAL(0x00, 0x00, 0x00, 0x00)},
 	/* usb or serial download */
 	{"usb",		MAKE_CFGVAL(0x00, 0x00, 0x00, 0x13)},

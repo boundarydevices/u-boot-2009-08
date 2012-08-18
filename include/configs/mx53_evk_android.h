@@ -151,7 +151,7 @@
 #undef CONFIG_CMD_IMLS
 
 /* Miscellaneous commands */
-#define CONFIG_CMD_RESETMODE
+#define CONFIG_CMD_BMODE
 
 #define CONFIG_BOOTDELAY	3
 

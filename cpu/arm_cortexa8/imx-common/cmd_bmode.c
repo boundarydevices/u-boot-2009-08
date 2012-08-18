@@ -22,19 +22,25 @@
 #include <common.h>
 #include <asm/errno.h>
 #include <asm/io.h>
-#include <asm/imx-common/resetmode.h>
+#include <asm/imx-common/boot_mode.h>
 #include <malloc.h>
 
 extern int do_reset(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[]);
 
-const struct reset_mode *modes[2];
+enum command_ret_t {
+	CMD_RET_SUCCESS,	/* 0 = Success */
+	CMD_RET_FAILURE,	/* 1 = Failure */
+	CMD_RET_USAGE = -1,	/* Failure, please report 'usage' error */
+};
 
-const struct reset_mode *search_modes(char *arg)
+static const struct boot_mode *modes[2];
+
+static const struct boot_mode *search_modes(char *arg)
 {
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(modes); i++) {
-		const struct reset_mode *p = modes[i];
+		const struct boot_mode *p = modes[i];
 		if (p) {
 			while (p->name) {
 				if (!strcmp(p->name, arg))
@@ -46,13 +52,13 @@ const struct reset_mode *search_modes(char *arg)
 	return NULL;
 }
 
-int create_usage(char *dest)
+static int create_usage(char *dest)
 {
 	int i;
 	int size = 0;
 
 	for (i = 0; i < ARRAY_SIZE(modes); i++) {
-		const struct reset_mode *p = modes[i];
+		const struct boot_mode *p = modes[i];
 		if (p) {
 			while (p->name) {
 				int len = strlen(p->name);
@@ -67,91 +73,54 @@ int create_usage(char *dest)
 		}
 	}
 	if (dest)
-		dest[-1] = 0;
+		memcpy(dest - 1, " [noreset]", 11);	/* include trailing 0 */
+	size += 10;
 	return size;
 }
 
-int do_resetmode(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+static int do_boot_mode(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
-	const struct reset_mode *p;
+	const struct boot_mode *p;
+	int reset_requested = 1;
 
 	if (argc < 2)
-		goto usage;
+		return CMD_RET_USAGE;
 	p = search_modes(argv[1]);
 	if (!p)
-		goto usage;
-	reset_mode_apply(p->cfg_val);
+		return CMD_RET_USAGE;
+	if (argc == 3) {
+		if (strcmp(argv[2], "noreset"))
+			return CMD_RET_USAGE;
+		reset_requested = 0;
+	}
+
+	boot_mode_apply(p->cfg_val);
+	if (reset_requested && p->cfg_val)
+		do_reset(NULL, 0, 0, NULL);
 	return 0;
-usage:
-	cmd_usage(cmdtp);
-	return 1;
 }
 
 U_BOOT_CMD(
-	resetmode, 2, 0, do_resetmode,
+	bmode, 3, 0, do_boot_mode,
 	NULL,
 	"");
 
-void add_board_resetmodes(const struct reset_mode *p)
+void add_board_boot_modes(const struct boot_mode *p)
 {
 	int size;
 	char *dest;
 
-	if (__u_boot_cmd_resetmode.usage) {
-		free(__u_boot_cmd_resetmode.usage);
-		__u_boot_cmd_resetmode.usage = NULL;
+	if (__u_boot_cmd_bmode.usage) {
+		free(__u_boot_cmd_bmode.usage);
+		__u_boot_cmd_bmode.usage = NULL;
 	}
 
 	modes[0] = p;
-	modes[1] = soc_reset_modes;
+	modes[1] = soc_boot_modes;
 	size = create_usage(NULL);
 	dest = malloc(size);
 	if (dest) {
 		create_usage(dest);
-		__u_boot_cmd_resetmode.usage = dest;
+		__u_boot_cmd_bmode.usage = dest;
 	}
 }
-
-int do_resetmode_cmd(char *arg)
-{
-	const struct reset_mode *p;
-
-	p = search_modes(arg);
-	if (!p) {
-		printf("%s not found\n", arg);
-		return -1;
-	}
-	reset_mode_apply(p->cfg_val);
-	do_reset(NULL, 0, 0, NULL);
-	return 0;
-}
-
-int do_bootmmc0(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
-{
-	return do_resetmode_cmd("mmc0");
-}
-
-int do_bootmmc1(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
-{
-	return do_resetmode_cmd("mmc1");
-}
-
-int do_download_mode(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
-{
-	return do_resetmode_cmd("usb");
-}
-
-U_BOOT_CMD(
-	bootmmc0, 1, 0, do_bootmmc0,
-	"boot to mmc 0",
-	"");
-
-U_BOOT_CMD(
-	bootmmc1, 1, 0, do_bootmmc1,
-	"boot to mmc 1",
-	"");
-
-U_BOOT_CMD(
-	download_mode, 1, 0, do_download_mode,
-	"start rom loader",
-	"");

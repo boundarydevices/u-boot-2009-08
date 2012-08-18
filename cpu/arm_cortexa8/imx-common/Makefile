@@ -27,7 +27,7 @@ include $(TOPDIR)/config.mk
 
 LIB     = $(obj)libimx-common.a
 
-COBJS-$(CONFIG_CMD_RESETMODE) += cmd_resetmode.o
+COBJS-$(CONFIG_CMD_BMODE) += cmd_bmode.o
 COBJS	:= $(sort $(COBJS-y))
 
 SRCS	:= $(SOBJS:.o=.S) $(COBJS:.o=.c)

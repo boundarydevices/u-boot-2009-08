@@ -20,17 +20,17 @@
  * MA 02111-1307 USA
  */
 
-#ifndef _ASM_RESETMODE_H
-#define _ASM_RESETMODE_H
+#ifndef _ASM_BOOT_MODE_H
+#define _ASM_BOOT_MODE_H
 #define MAKE_CFGVAL(cfg1, cfg2, cfg3, cfg4) \
 	((cfg4) << 24) | ((cfg3) << 16) | ((cfg2) << 8) | (cfg1)
 
-struct reset_mode {
+struct boot_mode {
 	const char *name;
 	unsigned cfg_val;
 };
 
-void add_board_resetmodes(const struct reset_mode *p);
-void reset_mode_apply(unsigned cfg_val);
-extern const struct reset_mode soc_reset_modes[];
+void add_board_boot_modes(const struct boot_mode *p);
+void boot_mode_apply(unsigned cfg_val);
+extern const struct boot_mode soc_boot_modes[];
 #endif
