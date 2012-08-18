@@ -559,7 +559,7 @@ int check_recovery_cmd_file(void)
 	case SPI_NOR_BOOT:
 	case I2C_BOOT:
 		{
-			for (i = 0; i < 3; i++) {
+			for (i = 0; i < 2; i++) {
 				block_dev_desc_t *dev_desc = NULL;
 				struct mmc *mmc = find_mmc_device(i);
 
