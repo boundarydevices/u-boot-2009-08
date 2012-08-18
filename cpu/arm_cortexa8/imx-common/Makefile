@@ -27,6 +27,7 @@ include $(TOPDIR)/config.mk
 
 LIB     = $(obj)libimx-common.a
 
+COBJS-y = iomux-v3.o
 COBJS-$(CONFIG_CMD_BMODE) += cmd_bmode.o
 COBJS	:= $(sort $(COBJS-y))
 
