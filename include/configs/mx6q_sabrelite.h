@@ -145,7 +145,6 @@
 #define	CONFIG_EXTRA_ENV_SETTINGS \
 		"netdev=eth0\0" \
 		"ethprime=FEC0\0" \
-		"ethaddr=00:01:02:03:04:05\0" \
 		"uboot=u-boot.bin\0" \
 		"kernel=uImage\0" \
 		"bootargs=console=ttymxc1,115200\0" \
