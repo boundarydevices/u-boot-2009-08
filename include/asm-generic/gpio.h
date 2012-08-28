@@ -19,6 +19,8 @@
  * MA 02111-1307 USA
  */
 
+#ifndef _ASM_GENERIC_GPIO_H_
+#define _ASM_GENERIC_GPIO_H_
 /*
  * Generic GPIO API for U-Boot
  *
@@ -72,3 +74,4 @@ int gpio_get_value(int gp);
  * @return 0 if ok, -1 on error
  */
 int gpio_set_value(int gp, int value);
+#endif	/* _ASM_GENERIC_GPIO_H_ */

@@ -24,7 +24,6 @@
  * MA 02111-1307 USA
  */
 #include <common.h>
-#include <asm/arch/imx-regs.h>
 #include <asm/gpio.h>
 #include <asm/io.h>
 #include <errno.h>
@@ -34,16 +33,16 @@ enum mxc_gpio_direction {
 	MXC_GPIO_DIRECTION_OUT,
 };
 
-
 /* GPIO port description */
 static unsigned long gpio_ports[] = {
 	[0] = GPIO1_BASE_ADDR,
 	[1] = GPIO2_BASE_ADDR,
 	[2] = GPIO3_BASE_ADDR,
-#if defined(CONFIG_MX51) || defined(CONFIG_MX53)
+#if defined(CONFIG_MX25) || defined(CONFIG_MX51) || defined(CONFIG_MX53) || \
+		defined(CONFIG_MX6Q)
 	[3] = GPIO4_BASE_ADDR,
 #endif
-#if defined(CONFIG_MX53)
+#if defined(CONFIG_MX53) || defined(CONFIG_MX6Q)
 	[4] = GPIO5_BASE_ADDR,
 	[5] = GPIO6_BASE_ADDR,
 	[6] = GPIO7_BASE_ADDR,
@@ -78,14 +77,14 @@ static int mxc_gpio_direction(unsigned int gpio,
 	return 0;
 }
 
-void gpio_set_value(int gpio, int value)
+int gpio_set_value(int gpio, int value)
 {
 	unsigned int port = gpio >> 5;
 	struct gpio_regs *regs;
 	u32 l;
 
 	if (port >= ARRAY_SIZE(gpio_ports))
-		return;
+		return -EINVAL;
 
 	gpio &= 0x1f;
 
@@ -97,6 +96,7 @@ void gpio_set_value(int gpio, int value)
 	else
 		l &= ~(1 << gpio);
 	writel(l, &regs->gpio_dr);
+	return 0;
 }
 
 int gpio_get_value(int gpio)
@@ -117,18 +117,6 @@ int gpio_get_value(int gpio)
 	return l;
 }
 
-int gpio_request(int gp, const char *label)
-{
-	unsigned int port = gp >> 5;
-	if (port >= ARRAY_SIZE(gpio_ports))
-		return -EINVAL;
-	return 0;
-}
-
-void gpio_free(int gp)
-{
-}
-
 void gpio_toggle_value(int gp)
 {
 	gpio_set_value(gp, !gpio_get_value(gp));
@@ -139,13 +127,11 @@ int gpio_direction_input(int gp)
 	return mxc_gpio_direction(gp, MXC_GPIO_DIRECTION_IN);
 }
 
-int gpio_direction_output(int gp, int value)
+int gpio_direction_output(int gpio, int value)
 {
-	int ret = mxc_gpio_direction(gp, MXC_GPIO_DIRECTION_OUT);
+	int ret = gpio_set_value(gpio, value);
 
 	if (ret < 0)
 		return ret;
-
-	gpio_set_value(gp, value);
-	return 0;
+	return mxc_gpio_direction(gpio, MXC_GPIO_DIRECTION_OUT);
 }
