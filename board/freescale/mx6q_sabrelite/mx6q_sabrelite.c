@@ -601,8 +601,7 @@ int mx6_rgmii_rework(char *devname, int phy_addr)
 void enet_board_init(void)
 {
 	iomux_v3_cfg_t enet_reset =
-	    (MX6Q_PAD_EIM_D23__GPIO_3_23 &
-	     ~MUX_PAD_CTRL_MASK) | MUX_PAD_CTRL(0x48);
+			NEW_PAD_CTRL(MX6Q_PAD_EIM_D23__GPIO_3_23, 0x48);
 
 	/* phy reset: gpio3-23 */
 	set_gpio_output_val(GPIO3_BASE_ADDR, (1 << 23), 0);
