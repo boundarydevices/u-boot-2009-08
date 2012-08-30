@@ -195,7 +195,8 @@ MXC_DCD_ITEM(MMDC_P1_BASE_ADDR + 0x828, 0x33333333)	/* Read DQ Byte3 Delay */
 /* MPMUR0 - Complete calibration by forced measurement */
 MXC_DCD_ITEM(MMDC_P0_BASE_ADDR + 0x8b8, 0x00000800)
 MXC_DCD_ITEM(MMDC_P1_BASE_ADDR + 0x8b8, 0x00000800)
-
+/* MDPDC - CKE pulse width = 3 cycles. CKSRE = 6 cycles, CKSRX = 6 cycles */
+MXC_DCD_ITEM(MMDC_P0_BASE_ADDR + 0x004, 0x00020036)
 MXC_DCD_ITEM(MMDC_P0_BASE_ADDR + 0x008, 0x09444040)
 /*
  * MDCFG0, tRFC=0x56 clocks, tXS=0x5b clocks
