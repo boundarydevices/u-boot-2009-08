@@ -50,10 +50,6 @@
 #include <imx_spi.h>
 #endif
 
-#ifdef CONFIG_IMX_UDC
-#include <usb/imx_udc.h>
-#endif
-
 #ifdef CONFIG_ANDROID_RECOVERY
 #include "../common/recovery.h"
 #include <part.h>
