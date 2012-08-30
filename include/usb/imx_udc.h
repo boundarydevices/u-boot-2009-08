@@ -485,7 +485,6 @@ void udc_irq(void);
 void usb_shutdown(void);
 void mxc_udc_rxqueue_update(u8 ep, u32 len);
 int is_usb_disconnected(void);
-void reset_usb_phy1();
 
 int usb_get_port_speed(void);
 void usb_rcv_urb(struct usb_endpoint_instance *epi, unsigned max_length);
