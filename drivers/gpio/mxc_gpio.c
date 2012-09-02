@@ -112,7 +112,7 @@ int gpio_get_value(int gpio)
 
 	regs = (struct gpio_regs *)gpio_ports[port];
 
-	l = (readl(&regs->gpio_dr) >> gpio) & 0x01;
+	l = (readl(&regs->gpio_psr) >> gpio) & 0x01;
 
 	return l;
 }
