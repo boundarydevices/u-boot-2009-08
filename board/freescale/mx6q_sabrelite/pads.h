@@ -1,0 +1,136 @@
+#undef MX6PAD
+#undef MX6NAME
+
+#ifdef FOR_SOLO
+#define MX6PAD(a) MX6DL_PAD_##a
+#define MX6NAME(a) mx6solo_##a
+#else
+#define MX6PAD(a) MX6Q_PAD_##a
+#define MX6NAME(a) mx6q_##a
+#endif
+
+static iomux_v3_cfg_t MX6NAME(sabrelite_pads)[] = {
+	/* uarts */
+	MX6PAD(SD3_DAT7__UART1_TXD),
+	MX6PAD(SD3_DAT6__UART1_RXD),
+	MX6PAD(EIM_D26__UART2_TXD),
+	MX6PAD(EIM_D27__UART2_RXD),
+	/* ecspi */
+	MX6PAD(EIM_D16__ECSPI1_SCLK),
+	MX6PAD(EIM_D17__ECSPI1_MISO),
+	MX6PAD(EIM_D18__ECSPI1_MOSI),
+	MX6PAD(EIM_D19__ECSPI1_SS1),
+	/* USDHC3 */
+	MX6PAD(SD3_CLK__USDHC3_CLK),
+	MX6PAD(SD3_CMD__USDHC3_CMD),
+	MX6PAD(SD3_DAT0__USDHC3_DAT0),
+	MX6PAD(SD3_DAT1__USDHC3_DAT1),
+	MX6PAD(SD3_DAT2__USDHC3_DAT2),
+	MX6PAD(SD3_DAT3__USDHC3_DAT3),
+	/* USDHC4 */
+	MX6PAD(SD4_CLK__USDHC4_CLK),
+	MX6PAD(SD4_CMD__USDHC4_CMD),
+	MX6PAD(SD4_DAT0__USDHC4_DAT0),
+	MX6PAD(SD4_DAT1__USDHC4_DAT1),
+	MX6PAD(SD4_DAT2__USDHC4_DAT2),
+	MX6PAD(SD4_DAT3__USDHC4_DAT3),
+	/* CCM  */
+	/* SGTL5000 sys_mclk */
+	NEW_PAD_CTRL(MX6PAD(GPIO_0__CCM_CLKO), 0x000b0),
+	/* Recovery Combo Button  */
+	MX6PAD(GPIO_19__GPIO_4_5),
+	/* usb */
+	MX6PAD(GPIO_1__USBOTG_ID),
+	/* USB_OTG_PWR */
+	MX6PAD(EIM_D22__GPIO_3_22),
+	/* wl1271 for Nitrogen6w */
+	NEW_PAD_CTRL(MX6PAD(NANDF_CS1__GPIO_6_14), 0x1b0b0),
+	NEW_PAD_CTRL(MX6PAD(NANDF_CS2__GPIO_6_15), 0x000b0),
+	NEW_PAD_CTRL(MX6PAD(NANDF_CS3__GPIO_6_16), 0x000b0),
+};
+
+static iomux_v3_cfg_t MX6NAME(enet_pads)[] = {
+	MX6PAD(ENET_MDIO__ENET_MDIO),
+	MX6PAD(ENET_MDC__ENET_MDC),
+	MX6PAD(RGMII_TXC__ENET_RGMII_TXC),
+	MX6PAD(RGMII_TD0__ENET_RGMII_TD0),
+	MX6PAD(RGMII_TD1__ENET_RGMII_TD1),
+	MX6PAD(RGMII_TD2__ENET_RGMII_TD2),
+	MX6PAD(RGMII_TD3__ENET_RGMII_TD3),
+	MX6PAD(RGMII_TX_CTL__ENET_RGMII_TX_CTL),
+	/* pin 35 - 1 (PHY_AD2) on reset */
+	MX6PAD(RGMII_RXC__GPIO_6_30),
+	/* pin 32 - 1 - (MODE0) all */
+	MX6PAD(RGMII_RD0__GPIO_6_25),
+	/* pin 31 - 1 - (MODE1) all */
+	MX6PAD(RGMII_RD1__GPIO_6_27),
+	/* pin 28 - 1 - (MODE2) all */
+	MX6PAD(RGMII_RD2__GPIO_6_28),
+	/* pin 27 - 1 - (MODE3) all */
+	MX6PAD(RGMII_RD3__GPIO_6_29),
+	/* pin 33 - 1 - (CLK125_EN) 125Mhz clockout enabled */
+	MX6PAD(RGMII_RX_CTL__GPIO_6_24),
+	MX6PAD(GPIO_0__CCM_CLKO),
+	MX6PAD(GPIO_3__CCM_CLKO2),
+	MX6PAD(ENET_REF_CLK__ENET_TX_CLK),
+	NEW_PAD_CTRL(MX6PAD(EIM_D23__GPIO_3_23), 0x48),	/* Phy Reset For Sabrelite */
+	NEW_PAD_CTRL(MX6PAD(ENET_RXD0__GPIO_1_27), 0x48),	/* Phy Reset For Nitrogen6w */
+};
+
+static iomux_v3_cfg_t MX6NAME(enet_pads_final)[] = {
+	MX6PAD(RGMII_RXC__ENET_RGMII_RXC),
+	MX6PAD(RGMII_RD0__ENET_RGMII_RD0),
+	MX6PAD(RGMII_RD1__ENET_RGMII_RD1),
+	MX6PAD(RGMII_RD2__ENET_RGMII_RD2),
+	MX6PAD(RGMII_RD3__ENET_RGMII_RD3),
+	MX6PAD(RGMII_RX_CTL__ENET_RGMII_RX_CTL),
+};
+
+#ifdef CONFIG_I2C_MXC
+#define PC    (PAD_CTL_PKE | PAD_CTL_PUE |		\
+		PAD_CTL_PUS_100K_UP | PAD_CTL_SPEED_MED |	\
+		PAD_CTL_DSE_40ohm | PAD_CTL_HYS |		\
+		PAD_CTL_ODE | PAD_CTL_SRE_FAST)
+
+static struct i2c_pads_info MX6NAME(i2c_pad_info)[] = {
+	/* I2C1, SGTL5000 */
+	{
+		.scl = {
+			.i2c_mode = NEW_PAD_CTRL(MX6PAD(EIM_D21__I2C1_SCL), PC),
+			.gpio_mode = NEW_PAD_CTRL(MX6PAD(EIM_D21__GPIO_3_21), PC),
+			.gp = IMX_GPIO_NR(3, 21)
+		},
+		.sda = {
+			.i2c_mode = NEW_PAD_CTRL(MX6PAD(EIM_D28__I2C1_SDA), PC),
+			.gpio_mode = NEW_PAD_CTRL(MX6PAD(EIM_D28__GPIO_3_28), PC),
+			.gp = IMX_GPIO_NR(3, 28)
+		}
+	},
+	/* I2C2 Camera, MIPI */
+	{
+		.scl = {
+			.i2c_mode = NEW_PAD_CTRL(MX6PAD(KEY_COL3__I2C2_SCL), PC),
+			.gpio_mode = NEW_PAD_CTRL(MX6PAD(KEY_COL3__GPIO_4_12), PC),
+			.gp = IMX_GPIO_NR(4, 12)
+		},
+		.sda = {
+				.i2c_mode = NEW_PAD_CTRL(MX6PAD(KEY_ROW3__I2C2_SDA), PC),
+				.gpio_mode = NEW_PAD_CTRL(MX6PAD(KEY_ROW3__GPIO_4_13), PC),
+				.gp = IMX_GPIO_NR(4, 13)
+		}
+	},
+	/* I2C3, J15 - RGB connector */
+	{
+		.scl = {
+			.i2c_mode = NEW_PAD_CTRL(MX6PAD(GPIO_5__I2C3_SCL), PC),
+			.gpio_mode = NEW_PAD_CTRL(MX6PAD(GPIO_5__GPIO_1_5), PC),
+			.gp = IMX_GPIO_NR(1, 5)
+		},
+		.sda = {
+			.i2c_mode = NEW_PAD_CTRL(MX6PAD(GPIO_16__I2C3_SDA), PC),
+			.gpio_mode = NEW_PAD_CTRL(MX6PAD(GPIO_16__GPIO_7_11), PC),
+			.gp = IMX_GPIO_NR(7, 11)
+		}
+	}
+};
+#endif

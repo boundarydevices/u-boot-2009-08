@@ -25,6 +25,7 @@
 #include <asm/arch/iomux.h>
 #include <asm/arch/mx6.h>
 #include <asm/arch/mx6_pins.h>
+#include <asm/arch/mx6dl_pins.h>
 #include <asm/errno.h>
 #include <asm/gpio.h>
 #include <asm/imx-common/boot_mode.h>
@@ -62,6 +63,24 @@
 #include <micrel.h>
 
 #define IMX_GPIO_NR(port, offset) (((port - 1) << 5) | offset)
+#include "pads.h"
+#define FOR_SOLO
+#include "pads.h"
+
+int cpu_is_mx6q(void) {
+	u32 cpu_type = readl(ANATOP_BASE_ADDR + 0x280);
+
+	cpu_type >>= 16;
+	if (cpu_type == 0x60)
+		return 0;	//this is a soloLite
+	cpu_type = readl(ANATOP_BASE_ADDR + 0x260);
+	cpu_type >>= 16;
+	if (cpu_type == 0x63) {
+		return 1;	//this is a mx6Q
+	}
+	//0x61 is a mx6dl or solo
+	return 0;
+}
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -179,21 +198,6 @@ int dram_init(void)
 	return 0;
 }
 
-static void setup_uart(void)
-{
-	/* UART1 TXD */
-	mxc_iomux_v3_setup_pad(MX6Q_PAD_SD3_DAT7__UART1_TXD);
-
-	/* UART1 RXD */
-	mxc_iomux_v3_setup_pad(MX6Q_PAD_SD3_DAT6__UART1_RXD);
-
-	/* UART2 TXD */
-	mxc_iomux_v3_setup_pad(MX6Q_PAD_EIM_D26__UART2_TXD);
-
-	/* UART2 RXD */
-	mxc_iomux_v3_setup_pad(MX6Q_PAD_EIM_D27__UART2_RXD);
-}
-
 #ifdef CONFIG_IMX_ECSPI
 s32 spi_get_cfg(struct imx_spi_dev_t *dev)
 {
@@ -225,27 +229,6 @@ s32 spi_get_cfg(struct imx_spi_dev_t *dev)
 
 void spi_io_init(struct imx_spi_dev_t *dev)
 {
-	switch (dev->base) {
-	case ECSPI1_BASE_ADDR:
-		/* SCLK */
-		mxc_iomux_v3_setup_pad(MX6Q_PAD_EIM_D16__ECSPI1_SCLK);
-
-		/* MISO */
-		mxc_iomux_v3_setup_pad(MX6Q_PAD_EIM_D17__ECSPI1_MISO);
-
-		/* MOSI */
-		mxc_iomux_v3_setup_pad(MX6Q_PAD_EIM_D18__ECSPI1_MOSI);
-
-		if (dev->ss == 1)
-			mxc_iomux_v3_setup_pad(MX6Q_PAD_EIM_D19__ECSPI1_SS1);
-		break;
-	case ECSPI2_BASE_ADDR:
-	case ECSPI3_BASE_ADDR:
-		/* ecspi2-3 fall through */
-		break;
-	default:
-		break;
-	}
 }
 #endif
 
@@ -275,23 +258,6 @@ int get_mmc_env_devno(void)
 }
 #endif
 
-iomux_v3_cfg_t mx6q_usdhc3_pads[] = {
-	MX6Q_PAD_SD3_CLK__USDHC3_CLK,
-	MX6Q_PAD_SD3_CMD__USDHC3_CMD,
-	MX6Q_PAD_SD3_DAT0__USDHC3_DAT0,
-	MX6Q_PAD_SD3_DAT1__USDHC3_DAT1,
-	MX6Q_PAD_SD3_DAT2__USDHC3_DAT2,
-	MX6Q_PAD_SD3_DAT3__USDHC3_DAT3,
-};
-
-iomux_v3_cfg_t mx6q_usdhc4_pads[] = {
-	MX6Q_PAD_SD4_CLK__USDHC4_CLK,
-	MX6Q_PAD_SD4_CMD__USDHC4_CMD,
-	MX6Q_PAD_SD4_DAT0__USDHC4_DAT0,
-	MX6Q_PAD_SD4_DAT1__USDHC4_DAT1,
-	MX6Q_PAD_SD4_DAT2__USDHC4_DAT2,
-	MX6Q_PAD_SD4_DAT3__USDHC4_DAT3,
-};
 
 int usdhc_gpio_init(bd_t *bis)
 {
@@ -301,18 +267,7 @@ int usdhc_gpio_init(bd_t *bis)
 	for (index = 0; index < CONFIG_SYS_FSL_USDHC_NUM; index++) {
 		switch (index) {
 		case 0:
-			mxc_iomux_v3_setup_multiple_pads(mx6q_usdhc3_pads,
-							 sizeof
-							 (mx6q_usdhc3_pads) /
-							 sizeof(mx6q_usdhc3_pads
-								[0]));
-			break;
 		case 1:
-			mxc_iomux_v3_setup_multiple_pads(mx6q_usdhc4_pads,
-							 sizeof
-							 (mx6q_usdhc4_pads) /
-							 sizeof(mx6q_usdhc4_pads
-								[0]));
 			break;
 		default:
 			printf("Warning: you configured more USDHC controllers"
@@ -349,14 +304,6 @@ u32 get_ddr_delay(struct fsl_esdhc_cfg *cfg)
 
 #endif
 
-/* Disable wl1271 for Nitrogen6w */
-iomux_v3_cfg_t wl12xx_pads[] = {
-	NEW_PAD_CTRL(MX6Q_PAD_NANDF_CS1__GPIO_6_14, 0x1b0b0),
-	NEW_PAD_CTRL(MX6Q_PAD_NANDF_CS2__GPIO_6_15, 0x000b0),
-	NEW_PAD_CTRL(MX6Q_PAD_NANDF_CS3__GPIO_6_16, 0x000b0),
-	/* CCM  */
-	NEW_PAD_CTRL(MX6Q_PAD_GPIO_0__CCM_CLKO, 0x000b0),		/* SGTL5000 sys_mclk */
-};
 
 #ifdef CONFIG_CMD_SATA
 int setup_sata(void)
@@ -385,57 +332,10 @@ int setup_sata(void)
 }
 #endif
 
-#ifdef CONFIG_I2C_MXC
-#define PC    (PAD_CTL_PKE | PAD_CTL_PUE |		\
-		PAD_CTL_PUS_100K_UP | PAD_CTL_SPEED_MED |	\
-		PAD_CTL_DSE_40ohm | PAD_CTL_HYS |		\
-		PAD_CTL_ODE | PAD_CTL_SRE_FAST)
-
-/* I2C1, SGTL5000 */
-struct i2c_pads_info i2c_pad_info0 = {
-	.scl = {
-		.i2c_mode = NEW_PAD_CTRL(MX6Q_PAD_EIM_D21__I2C1_SCL, PC),
-		.gpio_mode = NEW_PAD_CTRL(MX6Q_PAD_EIM_D21__GPIO_3_21, PC),
-		.gp = IMX_GPIO_NR(3, 21)
-	},
-	.sda = {
-		.i2c_mode = NEW_PAD_CTRL(MX6Q_PAD_EIM_D28__I2C1_SDA, PC),
-		.gpio_mode = NEW_PAD_CTRL(MX6Q_PAD_EIM_D28__GPIO_3_28, PC),
-		.gp = IMX_GPIO_NR(3, 28)
-	}
-};
-
-/* I2C2 Camera, MIPI */
-struct i2c_pads_info i2c_pad_info1 = {
-	.scl = {
-		.i2c_mode = NEW_PAD_CTRL(MX6Q_PAD_KEY_COL3__I2C2_SCL, PC),
-		.gpio_mode = NEW_PAD_CTRL(MX6Q_PAD_KEY_COL3__GPIO_4_12, PC),
-		.gp = IMX_GPIO_NR(4, 12)
-	},
-	.sda = {
-		.i2c_mode = NEW_PAD_CTRL(MX6Q_PAD_KEY_ROW3__I2C2_SDA, PC),
-		.gpio_mode = NEW_PAD_CTRL(MX6Q_PAD_KEY_ROW3__GPIO_4_13, PC),
-		.gp = IMX_GPIO_NR(4, 13)
-	}
-};
-
-/* I2C3, J15 - RGB connector */
-struct i2c_pads_info i2c_pad_info2 = {
-	.scl = {
-		.i2c_mode = NEW_PAD_CTRL(MX6Q_PAD_GPIO_5__I2C3_SCL, PC),
-		.gpio_mode = NEW_PAD_CTRL(MX6Q_PAD_GPIO_5__GPIO_1_5, PC),
-		.gp = IMX_GPIO_NR(1, 5)
-	},
-	.sda = {
-		.i2c_mode = NEW_PAD_CTRL(MX6Q_PAD_GPIO_16__I2C3_SDA, PC),
-		.gpio_mode = NEW_PAD_CTRL(MX6Q_PAD_GPIO_16__GPIO_7_11, PC),
-		.gp = IMX_GPIO_NR(7, 11)
-	}
-};
-#endif
-
 int board_init(void)
 {
+	int mx6q = cpu_is_mx6q();
+
 #ifdef CONFIG_MFG
 /* MFG firmware need reset usb to avoid host crash firstly */
 #define USBCMD 0x140
@@ -449,7 +349,10 @@ int board_init(void)
 	gpio_direction_input(IMX_GPIO_NR(6, 14));
 	gpio_direction_output(IMX_GPIO_NR(6, 15), 0);
 	gpio_direction_output(IMX_GPIO_NR(6, 16), 0);
-	mxc_iomux_v3_setup_multiple_pads(wl12xx_pads, ARRAY_SIZE(wl12xx_pads));
+	if (mx6q)
+		mxc_iomux_v3_setup_multiple_pads(mx6q_sabrelite_pads, ARRAY_SIZE(mx6q_sabrelite_pads));
+	else
+		mxc_iomux_v3_setup_multiple_pads(mx6solo_sabrelite_pads, ARRAY_SIZE(mx6solo_sabrelite_pads));
 	clk_config_cko1(8000000);
 
 	/* board id for linux */
@@ -458,12 +361,14 @@ int board_init(void)
 	/* address of boot parameters */
 	gd->bd->bi_boot_params = PHYS_SDRAM_1 + 0x100;
 
-	setup_uart();
-
 #ifdef CONFIG_I2C_MXC
-	setup_i2c(0, CONFIG_SYS_I2C1_SPEED, 0x7f, &i2c_pad_info0);
-	setup_i2c(1, CONFIG_SYS_I2C2_SPEED, 0x7f, &i2c_pad_info1);
-	setup_i2c(2, CONFIG_SYS_I2C3_SPEED, 0x7f, &i2c_pad_info2);
+	{
+		struct i2c_pads_info *pi =
+				mx6q ? mx6q_i2c_pad_info : mx6solo_i2c_pad_info;
+		setup_i2c(0, CONFIG_SYS_I2C1_SPEED, 0x7f, &pi[0]);
+		setup_i2c(1, CONFIG_SYS_I2C2_SPEED, 0x7f, &pi[1]);
+		setup_i2c(2, CONFIG_SYS_I2C3_SPEED, 0x7f, &pi[2]);
+	}
 #endif
 #ifdef CONFIG_CMD_SATA
 	setup_sata();
@@ -516,17 +421,13 @@ int check_recovery_cmd_file(void)
 {
 	int button_pressed = 0;
 	int recovery_mode = 0;
-	u32 reg;
 
 	recovery_mode = check_and_clean_recovery_flag();
 
 	/* Check Recovery Combo Button press or not. */
-	mxc_iomux_v3_setup_pad(MX6Q_PAD_GPIO_19__GPIO_4_5);
-	reg = readl(GPIO4_BASE_ADDR + GPIO_GDIR);
-	reg &= ~(1<<5);
-	writel(reg, GPIO4_BASE_ADDR + GPIO_GDIR);
-	reg = readl(GPIO4_BASE_ADDR + GPIO_PSR);
-	if (!(reg & (1 << 5))) { /* VOL_DN key is low assert */
+	gpio_direction_input(IMX_GPIO_NR(4, 5));
+
+	if (!gpio_get_value(IMX_GPIO_NR(4, 5))) { /* VOL_DN key is low assert */
 		button_pressed = 1;
 		printf("Recovery key pressed\n");
 	}
@@ -551,43 +452,6 @@ int board_late_init(void)
 #endif
 	return 0;
 }
-
-iomux_v3_cfg_t enet_pads[] = {
-	MX6Q_PAD_ENET_MDIO__ENET_MDIO,
-	MX6Q_PAD_ENET_MDC__ENET_MDC,
-	MX6Q_PAD_RGMII_TXC__ENET_RGMII_TXC,
-	MX6Q_PAD_RGMII_TD0__ENET_RGMII_TD0,
-	MX6Q_PAD_RGMII_TD1__ENET_RGMII_TD1,
-	MX6Q_PAD_RGMII_TD2__ENET_RGMII_TD2,
-	MX6Q_PAD_RGMII_TD3__ENET_RGMII_TD3,
-	MX6Q_PAD_RGMII_TX_CTL__ENET_RGMII_TX_CTL,
-	/* pin 35 - 1 (PHY_AD2) on reset */
-	MX6Q_PAD_RGMII_RXC__GPIO_6_30,
-	/* pin 32 - 1 - (MODE0) all */
-	MX6Q_PAD_RGMII_RD0__GPIO_6_25,
-	/* pin 31 - 1 - (MODE1) all */
-	MX6Q_PAD_RGMII_RD1__GPIO_6_27,
-	/* pin 28 - 1 - (MODE2) all */
-	MX6Q_PAD_RGMII_RD2__GPIO_6_28,
-	/* pin 27 - 1 - (MODE3) all */
-	MX6Q_PAD_RGMII_RD3__GPIO_6_29,
-	/* pin 33 - 1 - (CLK125_EN) 125Mhz clockout enabled */
-	MX6Q_PAD_RGMII_RX_CTL__GPIO_6_24,
-	MX6Q_PAD_GPIO_0__CCM_CLKO,
-	MX6Q_PAD_GPIO_3__CCM_CLKO2,
-	MX6Q_PAD_ENET_REF_CLK__ENET_TX_CLK,
-	NEW_PAD_CTRL(MX6Q_PAD_EIM_D23__GPIO_3_23, 0x48),	/* Phy Reset For Sabrelite */
-	NEW_PAD_CTRL(MX6Q_PAD_ENET_RXD0__GPIO_1_27, 0x48),	/* Phy Reset For Nitrogen6w */
-};
-
-iomux_v3_cfg_t enet_pads_final[] = {
-	MX6Q_PAD_RGMII_RXC__ENET_RGMII_RXC,
-	MX6Q_PAD_RGMII_RD0__ENET_RGMII_RD0,
-	MX6Q_PAD_RGMII_RD1__ENET_RGMII_RD1,
-	MX6Q_PAD_RGMII_RD2__ENET_RGMII_RD2,
-	MX6Q_PAD_RGMII_RD3__ENET_RGMII_RD3,
-	MX6Q_PAD_RGMII_RX_CTL__ENET_RGMII_RX_CTL,
-};
 
 static int phy_write(char *devname, unsigned char addr, unsigned char reg,
 		     unsigned short value)
@@ -648,6 +512,7 @@ int mx6_rgmii_rework(char *phydev, int phy_addr)
 
 void enet_board_init(void)
 {
+	int mx6q = cpu_is_mx6q();
 	/* Sabrelite phy reset: gpio3-23 */
 	gpio_direction_output(IMX_GPIO_NR(3, 23), 0);
 	/* Nitrogen6w phy reset: gpio1-27 */
@@ -657,7 +522,12 @@ void enet_board_init(void)
 	gpio_direction_output(IMX_GPIO_NR(6, 27), 1);
 	gpio_direction_output(IMX_GPIO_NR(6, 28), 1);
 	gpio_direction_output(IMX_GPIO_NR(6, 29), 1);
-	mxc_iomux_v3_setup_multiple_pads(enet_pads, ARRAY_SIZE(enet_pads));
+	if (mx6q)
+		mxc_iomux_v3_setup_multiple_pads(mx6q_enet_pads,
+				ARRAY_SIZE(mx6q_enet_pads));
+	else
+		mxc_iomux_v3_setup_multiple_pads(mx6solo_enet_pads,
+				ARRAY_SIZE(mx6solo_enet_pads));
 	gpio_direction_output(IMX_GPIO_NR(6, 24), 1);
 
 	udelay(500);
@@ -665,13 +535,17 @@ void enet_board_init(void)
 	gpio_direction_output(IMX_GPIO_NR(3, 23), 1);
 	/* Nitrogen6w phy reset: gpio1-27 */
 	gpio_direction_output(IMX_GPIO_NR(1, 27), 1);
-	mxc_iomux_v3_setup_multiple_pads(enet_pads_final,
-					 ARRAY_SIZE(enet_pads_final));
+	if (mx6q)
+		mxc_iomux_v3_setup_multiple_pads(mx6q_enet_pads_final,
+				ARRAY_SIZE(mx6q_enet_pads_final));
+	else
+		mxc_iomux_v3_setup_multiple_pads(mx6solo_enet_pads_final,
+				ARRAY_SIZE(mx6solo_enet_pads_final));
 }
 
 int checkboard(void)
 {
-	printf("Board: MX6Q-SABRELITE:[ ");
+	printf("Board: %s-SABRELITE:[ ", cpu_is_mx6q() ? "MX6Q" : "MX6 SOLO");
 
 	switch (__REG(SRC_BASE_ADDR + 0x8)) {
 	case 0x0001:
@@ -730,21 +604,8 @@ int checkboard(void)
 
 void udc_pins_setting(void)
 {
-#define GPIO_3_22_BIT_MASK (1<<22)
-	u32 reg;
-	mxc_iomux_v3_setup_pad(MX6Q_PAD_GPIO_1__USBOTG_ID);
-	/* USB_OTG_PWR */
-	mxc_iomux_v3_setup_pad(MX6Q_PAD_EIM_D22__GPIO_3_22);
-
-	reg = readl(GPIO3_BASE_ADDR + GPIO_GDIR);
-	/* set gpio_3_22 as output */
-	reg |= GPIO_3_22_BIT_MASK;
-	writel(reg, GPIO3_BASE_ADDR + GPIO_GDIR);
-
 	/* set USB_OTG_PWR to 0 */
-	reg = readl(GPIO3_BASE_ADDR + GPIO_DR);
-	reg &= ~GPIO_3_22_BIT_MASK;
-	writel(reg, GPIO3_BASE_ADDR + GPIO_DR);
+	gpio_direction_output(IMX_GPIO_NR(3, 22), 0);
 
 	mxc_iomux_set_gpr_register(1, 13, 1, 1);
 }
