@@ -74,15 +74,16 @@
  */
 .macro init_l2cc
 	/* explicitly disable L2 cache */
-	/* in Auxiliary Control Register */
 	mrc	15, 0, r0, c1, c0, 1
 	bic	r0, r0, #0x2
-	mcr	15, 0, r0, c1, c0, 1
+	mcr	15, 0, r0, c1, c0, 1	/* write Auxiliary Control Register */
 
 	/* reconfigure L2 cache aux control reg */
 	mov	r0, #0xC4				/* tag/data RAM */
 	/* disable write allocate, combine, delay */
-	orr	r0, r0, #(1 << 22)|(1 << 23)|(1 << 24)
+	orr	r0, r0, #(1 << 24) |	/* disable write allocate delay */ \
+		(1 << 23) |	/* disable write allocate combine */ \
+		(1 << 22)	/* disable write allocate */
 
 #if 0 //def CONFIG_MX51
 	mov	r1, #0x0
@@ -281,7 +282,7 @@
 	str	r0, [\r_ccm, #CLKCTL_CCDR]
 
 	mov	r0, #0x2000
-	sub	r0, r0, #1                  /* =0x1fff */
+	sub	r0, r0, #1			/* =0x1fff */
 	str	r0, [\r_ccm,#CLKCTL_CCR]	/* Turn on oscillator */
 
 1:
