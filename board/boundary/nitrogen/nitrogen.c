@@ -1308,3 +1308,42 @@ int checkboard(void)
 	return 0;
 }
 
+
+/*
+ * Translate the virtual address of ram space to physical address
+ * It is dependent on the implementation of mmu_init
+ */
+unsigned long iomem_to_phys(unsigned long virt)
+{
+	if (virt < (PHYS_SDRAM_1_SIZE - 0x100000))
+		return (unsigned long)(virt + PHYS_SDRAM_1);
+
+	if (virt >= 0xE0000000)
+		return (unsigned long)((virt - 0xE0000000) + PHYS_SDRAM_1);
+
+	return (unsigned long)virt;
+}
+
+/*
+ * Remap the physical address of ram space to uncacheable virtual address space
+ * It is dependent on the implementation of hal_mmu_init
+ */
+void __iounmap(void *addr)
+{
+	return;
+}
+
+void *__ioremap(unsigned long offset, size_t size, unsigned long flags)
+{
+	if (1 == flags) {
+		/* 0xE0000000~0xFFFFFFFF is uncacheable
+		meory space which is mapped to SDRAM */
+		if (offset >= PHYS_SDRAM_1 &&
+			offset < (PHYS_SDRAM_1 + PHYS_SDRAM_1_SIZE))
+			return (void *)((offset - PHYS_SDRAM_1) + 0xE0000000);
+		else
+			return NULL;
+	} else
+		return (void *)offset;
+}
+

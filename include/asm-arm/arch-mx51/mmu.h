@@ -209,7 +209,7 @@ void *__ioremap(unsigned long offset, size_t size, unsigned long flags)
 }
 
 #else
-	#error "No such platforms for MMU!"
+//	#error "No such platforms for MMU!"
 #endif
 
 #endif

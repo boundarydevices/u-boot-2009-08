@@ -30,7 +30,6 @@
 #define CONFIG_ARMV7		1	/* This is armv7 Cortex-A8 CPU core */
 
 #define CONFIG_MXC		1
-#define CONFIG_MX51_BBG		1	/* in a mx51 */
 #define CONFIG_MX51	1
 #define CONFIG_VIDEO_IMX5X	1
 #define CONFIG_FLASH_HEADER	1
