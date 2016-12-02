@@ -271,7 +271,7 @@
 	bge	3b
 .endm
 
-.macro init_clock	r_ccm, rPll1, rPll2, rPll3
+.macro init_clock	r_ccm, r_pll1, r_pll2, r_pll3
 
 #ifdef CONFIG_MX51
 	/* Disable IPU and HSC handshake */
@@ -294,9 +294,9 @@ waitosc:
 
 /* disable auto restart */
 	mov	r0, #0
-	str	r0, [\rPll1, #PLL_DP_CONFIG]
-	str	r0, [\rPll2, #PLL_DP_CONFIG]
-	str	r0, [\rPll3, #PLL_DP_CONFIG]
+	str	r0, [\r_pll1, #PLL_DP_CONFIG]
+	str	r0, [\r_pll2, #PLL_DP_CONFIG]
+	str	r0, [\r_pll3, #PLL_DP_CONFIG]
 	print_debug_ch '2'
 
 	/* Gate of clocks to the peripherals first */
@@ -341,12 +341,12 @@ waitosc:
 	str	r0, [\r_ccm, #CLKCTL_CCSR]
 
 #ifdef CONFIG_MX51_PLL_ERRATA
-	pll_op	\rPll1, 864
-	start_pllf \rPll1,864
-	setup_pll_errata \rPll1, DP_MFN_800_DIT
+	pll_op	\r_pll1, 864
+	start_pllf \r_pll1,864
+	setup_pll_errata \r_pll1, DP_MFN_800_DIT
 #else
-	pll_op	\rPll1, CONFIG_SYS_PLL1_FREQ
-	start_pllf \rPll1, CONFIG_SYS_PLL1_FREQ
+	pll_op	\r_pll1, CONFIG_SYS_PLL1_FREQ
+	start_pllf \r_pll1, CONFIG_SYS_PLL1_FREQ
 #endif
 
 	/* Switch ARM back to PLL 1 */
@@ -354,8 +354,8 @@ waitosc:
 	str	r0, [\r_ccm, #CLKCTL_CCSR]
 
 #ifdef CONFIG_MX51
-	pll_op	\rPll3, 665
-	start_pllf \rPll3, 665
+	pll_op	\r_pll3, 665
+	start_pllf \r_pll3, 665
 
 	/* Switch peripheral to PLL 3 */
 	ldr	r0, =0x000010C0
@@ -368,8 +368,8 @@ waitosc:
 	str	r0, [\r_ccm, #CLKCTL_CBCDR]
 	divisor_change_wait \r_ccm
 
-	pll_op	\rPll2, 665
-	start_pllf \rPll2, 665
+	pll_op	\r_pll2, 665
+	start_pllf \r_pll2, 665
 
 	/* Switch peripheral to PLL2 */
 	/* [25] 1 -> 0 (periph was apm, now pll2) */
@@ -382,8 +382,8 @@ waitosc:
 	str	r0, [\r_ccm, #CLKCTL_CBCMR]
 #endif
 
-	pll_op	\rPll3, 216
-	start_pllf \rPll3, 216
+	pll_op	\r_pll3, 216
+	start_pllf \r_pll3, 216
 
 	/* Set the platform clock dividers */
 	ldr	r1, =ARM_BASE_ADDR
