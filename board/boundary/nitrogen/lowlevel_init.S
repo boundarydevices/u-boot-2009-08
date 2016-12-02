@@ -116,7 +116,7 @@
 .endm /* init_aips */
 
 /* M4IF setup */
-.macro init_m4if	rM4if
+.macro init_m4if	r_zero, rM4if
 #ifdef CONFIG_MX51
 	/* VPU and IPU given higher priority (0x4)
 	 * IPU accesses with ID=0x1 given highest priority (=0xA)
@@ -124,8 +124,7 @@
 	ldr	r0, =0x00000203
 	str	r0, [\rM4if, #0x40]
 
-	mov	r0, #0x0
-	str	r0, [\rM4if, #0x44]
+	str	\r_zero, [\rM4if, #0x44]
 
 	ldr	r0, =0x00120125
 	str	r0, [\rM4if, #0x9C]
@@ -149,25 +148,24 @@
 #define IDMAC_CH_EN_2		0x008
 #define IDMAC_WM_EN_1		0x01C
 #define IDMAC_WM_EN_2		0x020
-.macro init_disable_ipu
+.macro init_disable_ipu r_zero
 	mov	r1,#IPU_CM_REG_BASE
 	ldr	r0,[r1, #IPU_DISP_GEN]
 	bic	r0, r0, #(3 << 24)	/* clear DI0/DI1 counter release */
 	str	r0,[r1, #IPU_DISP_GEN]
 
-	mov	r0, #0
-	str	r0,[r1, #IPU_CONF]	/* disable DI0/DI1 */
+	str	\r_zero,[r1, #IPU_CONF]	/* disable DI0/DI1 */
 	
 	add	r2, r1, #IPU_IDMAC_BASE - IPU_CM_REG_BASE
-	str	r0, [r2, #IDMAC_CH_EN_1]
-	str	r0, [r2, #IDMAC_CH_EN_2]
-	str	r0, [r2, #IDMAC_WM_EN_1]
-	str	r0, [r2, #IDMAC_WM_EN_2]
+	str	\r_zero, [r2, #IDMAC_CH_EN_1]
+	str	\r_zero, [r2, #IDMAC_CH_EN_2]
+	str	\r_zero, [r2, #IDMAC_WM_EN_1]
+	str	\r_zero, [r2, #IDMAC_WM_EN_2]
 
-	str	r0, [r1, #IPU_CH_DB_MODE_SEL0]
-	str	r0, [r1, #IPU_CH_DB_MODE_SEL1]
-	str	r0, [r1, #IPU_CH_TRB_MODE_SEL0]
-	str	r0, [r1, #IPU_CH_TRB_MODE_SEL1]
+	str	\r_zero, [r1, #IPU_CH_DB_MODE_SEL0]
+	str	\r_zero, [r1, #IPU_CH_DB_MODE_SEL1]
+	str	\r_zero, [r1, #IPU_CH_TRB_MODE_SEL0]
+	str	\r_zero, [r1, #IPU_CH_TRB_MODE_SEL1]
 .endm
 
 	.equiv	_DP_OP_1000,	DP_OP_1000
@@ -271,7 +269,7 @@
 	bge	3b
 .endm
 
-.macro init_clock	r_ccm, r_pll1, r_pll2, r_pll3
+.macro init_clock	r_zero, r_ccm, r_pll1, r_pll2, r_pll3
 
 #ifdef CONFIG_MX51
 	/* Disable IPU and HSC handshake */
@@ -293,19 +291,17 @@ waitosc:
 	print_debug_ch '1'
 
 /* disable auto restart */
-	mov	r0, #0
-	str	r0, [\r_pll1, #PLL_DP_CONFIG]
-	str	r0, [\r_pll2, #PLL_DP_CONFIG]
-	str	r0, [\r_pll3, #PLL_DP_CONFIG]
+	str	\r_zero, [\r_pll1, #PLL_DP_CONFIG]
+	str	\r_zero, [\r_pll2, #PLL_DP_CONFIG]
+	str	\r_zero, [\r_pll3, #PLL_DP_CONFIG]
 	print_debug_ch '2'
 
 	/* Gate of clocks to the peripherals first */
 	mvn	r0, #~0x3FFFFFFF
 	str	r0, [\r_ccm, #CLKCTL_CCGR0]
-	mov	r0, #0x0
-	str	r0, [\r_ccm, #CLKCTL_CCGR1]
-	str	r0, [\r_ccm, #CLKCTL_CCGR2]
-	str	r0, [\r_ccm, #CLKCTL_CCGR3]
+	str	\r_zero, [\r_ccm, #CLKCTL_CCGR1]
+	str	\r_zero, [\r_ccm, #CLKCTL_CCGR2]
+	str	\r_zero, [\r_ccm, #CLKCTL_CCGR3]
 
 	mov	r0, #0x00030000
 	str	r0, [\r_ccm, #CLKCTL_CCGR4]
@@ -324,8 +320,7 @@ waitosc:
 #else
 	ldr	r0, =0x0F00030F
 	str	r0, [\r_ccm, #CLKCTL_CCGR6]
-	mov	r0,#0
-	str	r0, [\r_ccm, #CLKCTL_CCGR7]
+	str	\r_zero, [\r_ccm, #CLKCTL_CCGR7]
 #endif
 
 	/* Switch ARM to step clock (clock source 4) */
@@ -333,8 +328,7 @@ waitosc:
 	ldr	r0, [\r_ccm, #CLKCTL_CCSR]
 	bic	r0,r0,#4
 	str	r0, [\r_ccm, #CLKCTL_CCSR]
-	mov	r0, #0
-	str	r0, [\r_ccm, #CLKCTL_CCSR]
+	str	\r_zero, [\r_ccm, #CLKCTL_CCSR]
 	/* select clock source 4 as source for step clock */
 	/* switch arm to step clock */
 	mov	r0, #0x4
@@ -350,8 +344,7 @@ waitosc:
 #endif
 
 	/* Switch ARM back to PLL 1 */
-	mov	r0, #0
-	str	r0, [\r_ccm, #CLKCTL_CCSR]
+	str	\r_zero, [\r_ccm, #CLKCTL_CCSR]
 
 #ifdef CONFIG_MX51
 	pll_op	\r_pll3, 665
@@ -397,8 +390,7 @@ waitosc:
 	 */
 	mov	r0, #CONFIG_SYS_ARM_PODF
 #if 0
-	mov	r0, #0x0
-	ldr	r1, [r0, #ROM_SI_REV]
+	ldr	r1, [\r_zero, #ROM_SI_REV]
 	cmp	r1, #0x10
 	movls	r0, #0x1
 	movhi	r0, #0
@@ -468,8 +460,7 @@ waitosc:
 	divisor_change_wait \r_ccm
 #endif
 
-	mov	r0, #0x0
-	str	r0, [\r_ccm, #CLKCTL_CCDR]
+	str	\r_zero, [\r_ccm, #CLKCTL_CCDR]
 
 	/* for cko - for ARM div by 8 */
 	mov	r0, #0x000A0000
@@ -502,6 +493,7 @@ lowlevel_init:
 	mrc	15, 0, r1, c1, c0, 1
 	orr	r1, r1, #(1 << 5)	/* enable L1NEON bit */
 	mcr	15, 0, r1, c1, c0, 1
+	mov	r9, #0
 
 	print_debug_ch 'b'
 	init_l1cc
@@ -516,10 +508,10 @@ lowlevel_init:
 
 	print_debug_ch 'e'
 	ldr	r4, =M4IF_BASE_ADDR
-	init_m4if	r4
+	init_m4if	r9, r4
 
 //	print_debug_ch 'g'
-//	init_disable_ipu
+//	init_disable_ipu r9
 
 	print_debug_ch 'h'
 
@@ -527,7 +519,7 @@ lowlevel_init:
 	ldr	r5, =PLL1_BASE_ADDR
 	ldr	r6, =PLL2_BASE_ADDR
 	ldr	r7, =PLL3_BASE_ADDR
-	init_clock	r4, r5, r6, r7
+	init_clock	r9, r4, r5, r6, r7
 	bl	setup_uart
 
 	print_debug_ch '\n'
