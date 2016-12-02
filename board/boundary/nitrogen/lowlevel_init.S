@@ -280,7 +280,8 @@
 #endif
 	str	r0, [\r_ccm, #CLKCTL_CCDR]
 
-	ldr	r0, =0x1fff
+	mov	r0, #0x2000
+	sub	r0, r0, #1                  /* =0x1fff */
 	str	r0, [\r_ccm,#CLKCTL_CCR]	/* Turn on oscillator */
 
 1:
