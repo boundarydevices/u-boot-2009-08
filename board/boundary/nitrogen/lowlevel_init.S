@@ -214,7 +214,7 @@
 	.equiv	_DP_MFD_216,	DP_MFD_216
 	.equiv	_DP_CTL_216,	DP_CTL_216
 
-.macro pll_op_mfd_mfn r_pll, dp_op, dp_mfd, dp_mfn
+.macro pll_op_mfd_mfn r_pll, dp_op, dp_mfd, dp_mfn, dp_ctl
 	mov	r0, #\dp_op
 	str	r0, [\r_pll, #PLL_DP_OP]
 	str	r0, [\r_pll, #PLL_DP_HFS_OP]
@@ -226,13 +226,7 @@
 	mov	r0, #\dp_mfn
 	str	r0, [\r_pll, #PLL_DP_MFN]
 	str	r0, [\r_pll, #PLL_DP_HFS_MFN]
-.endm
 
-.macro pll_op r_pll, freq
-	pll_op_mfd_mfn \r_pll, _DP_OP_\freq, _DP_MFD_\freq, _DP_MFN_\freq
-.endm
-
-.macro start_pll r_pll, dp_ctl
 	ldr	r0, =\dp_ctl
 	str	r0, [\r_pll, #PLL_DP_CTL] /* Set DPLL ON (set UPEN bit) */
 1:	ldr	r0, [\r_pll, #PLL_DP_CTL]
@@ -240,8 +234,8 @@
 	beq	1b
 .endm
 
-.macro start_pllf r_pll, freq
-	start_pll	\r_pll, _DP_CTL_\freq
+.macro setup_pll r_pll, freq
+	pll_op_mfd_mfn \r_pll, _DP_OP_\freq, _DP_MFD_\freq, _DP_MFN_\freq, _DP_CTL_\freq
 .endm
 
 .macro divisor_change_wait r_ccm
@@ -252,7 +246,11 @@
 .endm
 
 .macro setup_pll_errata r_pll, mfn
-	start_pll	\r_pll, 0x00001236
+	ldr	r0, =0x00001236
+	str	r0, [\r_pll, #PLL_DP_CTL] /* Set DPLL ON (set UPEN bit) */
+1:	ldr	r0, [\r_pll, #PLL_DP_CTL]
+	tst	r0, #0x1
+	beq	1b
 
 	mov	r0, #\mfn
 	str	r0, [\r_pll, #PLL_DP_MFN]	/* Modify MFN value */
@@ -337,20 +335,17 @@
 	str	r0, [\r_ccm, #CLKCTL_CCSR]
 
 #ifdef CONFIG_MX51_PLL_ERRATA
-	pll_op	\r_pll1, 864
-	start_pllf \r_pll1,864
+	setup_pll	\r_pll1, 864
 	setup_pll_errata \r_pll1, DP_MFN_800_DIT
 #else
-	pll_op	\r_pll1, CONFIG_SYS_PLL1_FREQ
-	start_pllf \r_pll1, CONFIG_SYS_PLL1_FREQ
+	setup_pll	\r_pll1, CONFIG_SYS_PLL1_FREQ
 #endif
 
 	/* Switch ARM back to PLL 1 */
 	str	\r_zero, [\r_ccm, #CLKCTL_CCSR]
 
 #ifdef CONFIG_MX51
-	pll_op	\r_pll3, 665
-	start_pllf \r_pll3, 665
+	setup_pll	\r_pll3, 665
 
 	/* Switch peripheral to PLL 3 */
 	ldr	r0, =0x000010C0
@@ -363,8 +358,7 @@
 	str	r0, [\r_ccm, #CLKCTL_CBCDR]
 	divisor_change_wait \r_ccm
 
-	pll_op	\r_pll2, 665
-	start_pllf \r_pll2, 665
+	setup_pll	\r_pll2, 665
 
 	/* Switch peripheral to PLL2 */
 	/* [25] 1 -> 0 (periph was apm, now pll2) */
@@ -377,8 +371,7 @@
 	str	r0, [\r_ccm, #CLKCTL_CBCMR]
 #endif
 
-	pll_op	\r_pll3, 216
-	start_pllf \r_pll3, 216
+	setup_pll	\r_pll3, 216
 
 	/* Set the platform clock dividers */
 	ldr	r1, =ARM_BASE_ADDR
