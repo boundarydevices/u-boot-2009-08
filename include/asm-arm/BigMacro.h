@@ -103,6 +103,7 @@
 
 ///////////////////////////////////////////////////////
 .macro	BigMovCC  cc,dest, val
+#if 0
 	.set __nVal,(\val)
 	NextSetMask ~__nVal
 	.if (((~(__nVal))&~(__nMask)) > 0x255)
@@ -125,6 +126,10 @@
 		mvn\cc	\dest,#(~(__nVal))&(__nMask)	//complement of complement is original
 		Big2CC bic\cc,\dest,(~(__nVal))&~(__nMask)
 	.endif
+#else
+	ldr\cc	\dest,=#(\val)
+#endif
+
 .endm
 
 
