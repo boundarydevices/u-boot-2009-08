@@ -283,11 +283,11 @@
 	ldr	r0, =0x1fff
 	str	r0, [\r_ccm,#CLKCTL_CCR]	/* Turn on oscillator */
 
-waitosc:
+1:
 	ldr	r0, [\r_ccm, #CLKCTL_CSR]
 	and	r0, r0, #0x22
 	cmp	r0, #0x22		/* wait for Oscillator and FPM ready */
-	bne	waitosc
+	bne	1b
 	print_debug_ch '1'
 
 /* disable auto restart */
