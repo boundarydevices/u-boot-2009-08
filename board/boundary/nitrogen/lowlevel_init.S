@@ -69,6 +69,13 @@
 	isb
 .endm
 
+.macro init_arm_erratum
+	/* ARM erratum ID #468414 */
+	mrc 15, 0, r0, c1, c0, 1
+	orr r0, r0, #(1 << 5)    /* enable L1NEON bit */
+	mcr 15, 0, r0, c1, c0, 1
+.endm
+
 /*
  * L2CC Cache setup/invalidation/disable
  */
@@ -484,11 +491,9 @@ lowlevel_init:
 	str	r0, [r1, #GPIO_DIR]
 #endif
 
-	/* ARM errata ID #468414 */
-	mrc	15, 0, r1, c1, c0, 1
-	orr	r1, r1, #(1 << 5)	/* enable L1NEON bit */
-	mcr	15, 0, r1, c1, c0, 1
 	mov	r9, #0
+
+	init_arm_erratum
 
 	print_debug_ch 'b'
 	init_l1cc
