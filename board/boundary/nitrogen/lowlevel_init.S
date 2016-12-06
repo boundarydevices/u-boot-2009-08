@@ -69,9 +69,19 @@
 
 .macro init_arm_erratum
 	/* ARM erratum ID #468414 */
-	mrc 15, 0, r0, c1, c0, 1
-	orr r0, r0, #(1 << 5)    /* enable L1NEON bit */
-	mcr 15, 0, r0, c1, c0, 1
+	mrc 15, 0, r1, c1, c0, 1
+	orr r1, r1, #(1 << 5)    /* enable L1NEON bit */
+	mcr 15, 0, r1, c1, c0, 1
+
+	/*
+	 * Workaround for arm errata #709718
+	 * ARM: Load and Store operations on the shared device memory
+	 * regions may not complete in program order
+	 */
+	/* Setup PRRR so device is always mapped to non-shared */
+	mrc p15, 0, r1, c10, c2, 0
+	bic r1, r1, #3 << 0x10
+	mcr p15, 0, r1, c10, c2, 0
 .endm
 
 /*

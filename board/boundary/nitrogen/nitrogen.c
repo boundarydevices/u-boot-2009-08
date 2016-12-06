@@ -213,12 +213,6 @@ void board_mmu_init(unsigned long ttb_base)
 			ARM_UNCACHEABLE, ARM_UNBUFFERABLE,
 			ARM_ACCESS_PERM_RW_RW); /* CS4/5/NAND Flash buffer */
 
-	/* Workaround for arm errata #709718 */
-	/* Setup PRRR so device is always mapped to non-shared */
-	asm volatile ("mrc p15, 0, %0, c10, c2, 0" : "=r"(i) : /*:*/);
-	i &= (~(3 << 0x10));
-	asm volatile ("mcr p15, 0, %0, c10, c2, 0" : : "r"(i) /*:*/);
-
 	/* Enable MMU */
 	MMU_ON();
 }
