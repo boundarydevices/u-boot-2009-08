@@ -51,9 +51,9 @@
 	add	r0, r0, #4		@ SetShift
 
 	clz	r1, r3			@ WayShift
-	add	r4, r3, #1		@ NumWays
+	add	r7, r3, #1		@ NumWays
 1:	sub	r2, r2, #1		@ NumSets--
-	mov	r3, r4			@ Temp = NumWays
+	mov	r3, r7			@ Temp = NumWays
 2:	subs	r3, r3, #1		@ Temp--
 	mov	r5, r3, lsl r1
 	mov	r6, r2, lsl r0
@@ -187,6 +187,29 @@
 	str	\r_zero, [r1, #IPU_CH_TRB_MODE_SEL1]
 .endm
 
+.macro setup_pll_errata r_pll, mfn
+	ldr	r1, =0x00001236
+	str	r1, [\r_pll, #PLL_DP_CTL]    /* Restart PLL with PLM=1 */
+1:	ldr	r1, [\r_pll, #PLL_DP_CTL]    /* Wait for lock */
+	ands	r1, r1, #0x1
+	beq	1b
+
+	mov	r1, #\mfn
+	str	r1, [\r_pll, #PLL_DP_MFN]	/* Modify MFN value */
+	str	r1, [\r_pll, #PLL_DP_HFS_MFN]
+
+	mov	r1, #0x1
+	str	r1, [\r_pll, #PLL_DP_CONFIG]	/* Reload MFN value */
+
+2:	ldr	r1, [\r_pll, #PLL_DP_CONFIG]
+	tst	r1, #1
+	bne	2b
+
+	ldr	r1, =100			/* Wait at least 4 us */
+3:	subs	r1, r1, #1
+	bge	3b
+.endm
+
 .macro pll_op_mfd_mfn r_pll, dp_op, dp_mfd, dp_mfn, dp_ctl
 	mov	r0, #\dp_op
 	str	r0, [\r_pll, #PLL_DP_OP]
@@ -207,12 +230,6 @@
 	beq	1b
 .endm
 
-#define setup_pll(pll, freq) \
-		pll_op_mfd_mfn pll, DP_OP_##freq, DP_MFD_##freq, \
-		DP_MFN_##freq, DP_CTL_##freq
-
-#define setup_pll_(pll, freq) setup_pll(pll, freq)
-
 .macro divisor_change_wait r_ccm
 	/* make sure divider effective */
 1:	ldr	r0, [\r_ccm, #CLKCTL_CDHIPR]
@@ -220,48 +237,30 @@
 	bne	1b
 .endm
 
-.macro setup_pll_errata r_pll, mfn
-	ldr	r0, =0x00001236
-	str	r0, [\r_pll, #PLL_DP_CTL] /* Set DPLL ON (set UPEN bit) */
-1:	ldr	r0, [\r_pll, #PLL_DP_CTL]
-	tst	r0, #0x1
-	beq	1b
+#define setup_pll(pll, freq) \
+		pll_op_mfd_mfn pll, DP_OP_##freq, DP_MFD_##freq, \
+		DP_MFN_##freq, DP_CTL_##freq
 
-	mov	r0, #\mfn
-	str	r0, [\r_pll, #PLL_DP_MFN]	/* Modify MFN value */
-	str	r0, [\r_pll, #PLL_DP_HFS_MFN]
-
-	mov	r0, #0x1
-	str	r0, [\r_pll, #PLL_DP_CONFIG]	/* Reload MFN value */
-
-2:	ldr	r0, [\r_pll, #PLL_DP_CONFIG]
-	tst	r0, #1
-	bne	2b
-
-	ldr	r0, =100			/* Wait at least 4 us */
-3:	subs	r0, r0, #1
-	bge	3b
-.endm
+#define setup_pll_(pll, freq) setup_pll(pll, freq)
 
 .macro init_clock	r_zero, r_ccm, r_pll1, r_pll2, r_pll3
 
 #ifdef CONFIG_MX51
 	/* Disable IPU and HSC handshake */
-	mov	r0, #0x00060000
+	mov	r1, #0x00060000
 #else
 	/* Disable IPU handshake */
-	mov	r0, #(1<<21)
+	mov	r1, #(1<<21)
 #endif
-	str	r0, [\r_ccm, #CLKCTL_CCDR]
+	str	r1, [\r_ccm, #CLKCTL_CCDR]
 
-	mov	r0, #0x2000
-	sub	r0, r0, #1			/* =0x1fff */
-	str	r0, [\r_ccm,#CLKCTL_CCR]	/* Turn on oscillator */
+	mov	r1, #0x2000
+	sub	r1, r1, #1			/* =0x1fff */
+	str	r1, [\r_ccm,#CLKCTL_CCR]	/* Turn on oscillator */
 
-1:
-	ldr	r0, [\r_ccm, #CLKCTL_CSR]
-	and	r0, r0, #0x22
-	cmp	r0, #0x22		/* wait for Oscillator and FPM ready */
+1:	ldr	r1, [\r_ccm, #CLKCTL_CSR]
+	and	r1, r1, #0x22
+	cmp	r1, #0x22		/* wait for Oscillator and FPM ready */
 	bne	1b
 	print_debug_ch '1'
 
@@ -272,19 +271,19 @@
 	print_debug_ch '2'
 
 	/* Gate of clocks to the peripherals first */
-	mvn	r0, #~0x3FFFFFFF
-	str	r0, [\r_ccm, #CLKCTL_CCGR0]
+	ldr	r1, =0x3FFFFFFF
+	str	r1, [\r_ccm, #CLKCTL_CCGR0]
 	str	\r_zero, [\r_ccm, #CLKCTL_CCGR1]
 	str	\r_zero, [\r_ccm, #CLKCTL_CCGR2]
 	str	\r_zero, [\r_ccm, #CLKCTL_CCGR3]
 
-	mov	r0, #0x00030000
-	str	r0, [\r_ccm, #CLKCTL_CCGR4]
-	ldr	r0, =0x00FFF030
-	str	r0, [\r_ccm, #CLKCTL_CCGR5]
+	ldr	r1, =0x00030000
+	str	r1, [\r_ccm, #CLKCTL_CCGR4]
+	ldr	r1, =0x00FFF030
+	str	r1, [\r_ccm, #CLKCTL_CCGR5]
 #ifdef CONFIG_MX51
-	mov	r0, #0x00000300
-	str	r0, [\r_ccm, #CLKCTL_CCGR6]
+	ldr	r1, =0x00000300
+	str	r1, [\r_ccm, #CLKCTL_CCGR6]
 
 	/* Make sure to switch the DDR away from PLL 1 */
 	/* keep the initial ddr podf value */
@@ -293,21 +292,22 @@
 	str	r3, [\r_ccm, #CLKCTL_CBCDR]
 	divisor_change_wait \r_ccm
 #else
-	ldr	r0, =0x0F00030F
-	str	r0, [\r_ccm, #CLKCTL_CCGR6]
+	ldr	r1, =0x0F00030F
+	str	r1, [\r_ccm, #CLKCTL_CCGR6]
 	str	\r_zero, [\r_ccm, #CLKCTL_CCGR7]
 #endif
 
 	/* Switch ARM to step clock (clock source 4) */
-	/* deselect step clock for glitch free update */
 	ldr	r0, [\r_ccm, #CLKCTL_CCSR]
-	bic	r0,r0,#4
+	/* deselect step clock for glitch free update */
+	bic	r0, r0, #4
 	str	r0, [\r_ccm, #CLKCTL_CCSR]
-	str	\r_zero, [\r_ccm, #CLKCTL_CCSR]
 	/* select clock source 4 as source for step clock */
+	str	\r_zero, [\r_ccm, #CLKCTL_CCSR]
+
 	/* switch arm to step clock */
-	mov	r0, #0x4
-	str	r0, [\r_ccm, #CLKCTL_CCSR]
+	mov	r1, #0x4
+	str	r1, [\r_ccm, #CLKCTL_CCSR]
 
 #ifdef CONFIG_MX51_PLL_ERRATA
 	setup_pll(\r_pll1, 864)
@@ -319,18 +319,18 @@
 	/* Switch ARM back to PLL 1 */
 	str	\r_zero, [\r_ccm, #CLKCTL_CCSR]
 
+#ifndef CONFIG_SYS_DDR_CLKSEL
+#define CONFIG_SYS_DDR_CLKSEL 0
+#endif
 #ifdef CONFIG_MX51
 	setup_pll(\r_pll3, 665)
 
 	/* Switch peripheral to PLL 3 */
-	ldr	r0, =0x000010C0
-#if CONFIG_SYS_DDR_CLKSEL
-	orr	r0,r0,#CONFIG_SYS_DDR_CLKSEL
-#endif
-	str	r0, [\r_ccm, #CLKCTL_CBCMR]
+	ldr	r1, =0x000010C0 | CONFIG_SYS_DDR_CLKSEL
+	str	r1, [\r_ccm, #CLKCTL_CBCMR]
 	/* [25] 0 -> 1 (periph was pll2, now apm) */
-	orr	r0, r3, #1<<25
-	str	r0, [\r_ccm, #CLKCTL_CBCDR]
+	orr	r1, r3, #1<<25
+	str	r1, [\r_ccm, #CLKCTL_CBCDR]
 	divisor_change_wait \r_ccm
 
 	setup_pll(\r_pll2, 665)
@@ -339,103 +339,94 @@
 	/* [25] 1 -> 0 (periph was apm, now pll2) */
 	str	r3, [\r_ccm, #CLKCTL_CBCDR]
 
-	ldr	r0, =0x000020C0
-#if CONFIG_SYS_DDR_CLKSEL
-	orr	r0,r0,#CONFIG_SYS_DDR_CLKSEL
-#endif
-	str	r0, [\r_ccm, #CLKCTL_CBCMR]
+	ldr	r1, =0x000020C0 | CONFIG_SYS_DDR_CLKSEL
+	str	r1, [\r_ccm, #CLKCTL_CBCMR]
 #endif
 
 	setup_pll(\r_pll3, 216)
 
 	/* Set the platform clock dividers */
-	ldr	r1, =ARM_BASE_ADDR
-	ldr	r0, =0x00000725
-	str	r0, [r1, #0x14]
+	ldr	r0, =ARM_BASE_ADDR
+	ldr	r1, =0x00000725
+	str	r1, [r0, #0x14]
 
 #ifdef CONFIG_MX51
 	/*
 	 * Run Tapeout 3.0 at Full speed,
 	 * for other TO's wait till we increase VDDGP
 	 */
-	mov	r0, #CONFIG_SYS_ARM_PODF
 #if 0
-	ldr	r1, [\r_zero, #ROM_SI_REV]
-	cmp	r1, #0x10
-	movls	r0, #0x1
-	movhi	r0, #0
+	ldr	r0, [\r_zero, #ROM_SI_REV]
+	cmp	r0, #0x10
+	movls	r1, #0x1
+	movhi	r1, #0
+#else
+	mov	r1, #CONFIG_SYS_ARM_PODF
 #endif
 #else
-	mov	r0, #0
+	mov	r1, #0
 #endif
-	str	r0, [\r_ccm, #CLKCTL_CACRR]
+	str	r1, [\r_ccm, #CLKCTL_CACRR]
 
 #ifdef CONFIG_MX51
 	/* setup the rest */
 	/* Use lp_apm (24MHz) source for perclk */
-	ldr	r0, =0x000020C2
-#if CONFIG_SYS_DDR_CLKSEL
-	orr	r0,r0,#CONFIG_SYS_DDR_CLKSEL
-#endif
-	str	r0, [\r_ccm, #CLKCTL_CBCMR]
+	ldr	r1, =0x000020C2 | CONFIG_SYS_DDR_CLKSEL
+	str	r1, [\r_ccm, #CLKCTL_CBCMR]
 	/* ddr clock from PLL 1, all perclk dividers are 1 since using 24MHz */
-#if 1
-	ldr	r0, =CONFIG_SYS_CLKTL_CBCDR & ~(7 << 27)
+	ldr	r1, =(CONFIG_SYS_CLKTL_CBCDR & ~(7 << 27))
 	/* keep the initial ddr podf value */
 	and	r2, r2, #(7 << 27)
-	orr	r0, r0, r2
-#else
-	ldr	r0, =CONFIG_SYS_CLKTL_CBCDR
-#endif
-	str	r0, [\r_ccm, #CLKCTL_CBCDR]
+	orr	r1, r1, r2
+	str	r1, [\r_ccm, #CLKCTL_CBCDR]
 
-	/* Use PLL2 for UART's clock, get 66.5MHz from it */
-	ldr	r0, =0xA5A2A020
-	str	r0, [\r_ccm, #CLKCTL_CSCMR1]
-	ldr	r0, =0x00C30321
-	str	r0, [\r_ccm, #CLKCTL_CSCDR1]
+	/* Use PLL 2 for UART's, get 66.5MHz from it */
+	ldr	r1, =0xA5A2A020
+	str	r1, [\r_ccm, #CLKCTL_CSCMR1]
+	ldr	r1, =0x00C30321
+	str	r1, [\r_ccm, #CLKCTL_CSCDR1]
 #endif
 	divisor_change_wait \r_ccm
 
 	/* Restore the default values in the Gate registers */
-	mvn	r0, #~0xFFFFFFFF
-	str	r0, [\r_ccm, #CLKCTL_CCGR0]
-	str	r0, [\r_ccm, #CLKCTL_CCGR1]
-	str	r0, [\r_ccm, #CLKCTL_CCGR2]
-	str	r0, [\r_ccm, #CLKCTL_CCGR3]
-	str	r0, [\r_ccm, #CLKCTL_CCGR4]
-	str	r0, [\r_ccm, #CLKCTL_CCGR5]
-	str	r0, [\r_ccm, #CLKCTL_CCGR6]
+	ldr	r1, =0xFFFFFFFF
+	str	r1, [\r_ccm, #CLKCTL_CCGR0]
+	str	r1, [\r_ccm, #CLKCTL_CCGR1]
+	str	r1, [\r_ccm, #CLKCTL_CCGR2]
+	str	r1, [\r_ccm, #CLKCTL_CCGR3]
+	str	r1, [\r_ccm, #CLKCTL_CCGR4]
+	str	r1, [\r_ccm, #CLKCTL_CCGR5]
+	str	r1, [\r_ccm, #CLKCTL_CCGR6]
 #ifdef CONFIG_MX53
-	str	r0, [\r_ccm, #CLKCTL_CCGR7]
+	str	r1, [\r_ccm, #CLKCTL_CCGR7]
 
 	/* Switch peripheral to PLL2 */
-	ldr	r0, =0x00808145
-	orr	r0, r0, #(2 << 10)
-	orr	r0, r0, #(0 << 16)
-	orr	r0, r0, #(1 << 19)
-	str	r0, [\r_ccm, #CLKCTL_CBCDR]
+	ldr	r1, =0x00808145
+	orr	r1, r1, #(2 << 10)
+	orr	r1, r1, #(0 << 16)
+	orr	r1, r1, #(1 << 19)
+	str	r1, [\r_ccm, #CLKCTL_CBCDR]
 
-	ldr	r0, =0x00016154
-	str	r0, [\r_ccm, #CLKCTL_CBCMR]
+	ldr	r1, =0x00016154
+	str	r1, [\r_ccm, #CLKCTL_CBCMR]
 	/* Change uart clk parent to pll2*/
-	ldr	r0, [\r_ccm, #CLKCTL_CSCMR1]
-	and	r0, r0, #0xfcffffff
-	orr	r0, r0, #0x01000000
-	str	r0, [\r_ccm, #CLKCTL_CSCMR1]
-	ldr	r0, [\r_ccm, #CLKCTL_CSCDR1]
-	and	r0, r0, #0xffffffc0
-	orr	r0, r0, #0x0a
-	str	r0, [\r_ccm, #CLKCTL_CSCDR1]
+	ldr	r1, [\r_ccm, #CLKCTL_CSCMR1]
+	and	r1, r1, #0xfcffffff
+	orr	r1, r1, #0x01000000
+	str	r1, [\r_ccm, #CLKCTL_CSCMR1]
+	ldr	r1, [\r_ccm, #CLKCTL_CSCDR1]
+	and	r1, r1, #0xffffffc0
+	orr	r1, r1, #0x0a
+	str	r1, [\r_ccm, #CLKCTL_CSCDR1]
 	divisor_change_wait \r_ccm
 #endif
 
 	str	\r_zero, [\r_ccm, #CLKCTL_CCDR]
 
 	/* for cko - for ARM div by 8 */
-	mov	r0, #0x000A0000
-	add	r0, r0, #0x00000F0
-	str	r0, [\r_ccm, #CLKCTL_CCOSR]
+	mov	r1, #0x000A0000
+	add	r1, r1, #0x00000F0
+	str	r1, [\r_ccm, #CLKCTL_CCOSR]
 .endm
 
 .section ".text.init", "x"
@@ -445,50 +436,50 @@
 
 .globl lowlevel_init
 lowlevel_init:
-	mov	r8, lr
+	mov	r10, lr
+	mov	r4, #0	/* Fix R4 to 0 */
 
 	print_debug_ch 'a'
-#ifdef CONFIG_MX51
+#if defined(CONFIG_SYS_MAIN_PWR_ON)
 /* make gp1[23] a high output */
-	ldr	r1, =GPIO1_BASE_ADDR
-	ldr	r0, [r1, #GPIO_DR]
-	orr	r0, r0, #(1 << 23)
-	str	r0, [r1, #GPIO_DR]
-	ldr	r0, [r1, #GPIO_DIR]
-	orr	r0, r0, #(1 << 23)
-	str	r0, [r1, #GPIO_DIR]
+	ldr	r0, =GPIO1_BASE_ADDR
+	ldr	r1, [r0, #GPIO_DR]
+	orr	r1, r1, #1 << 23
+	str	r1, [r0, #GPIO_DR]
+	ldr	r1, [r0, #GPIO_DIR]
+	orr	r1, r1, #1 << 23
+	str	r1, [r0, #GPIO_DIR]
 #endif
 
-	mov	r9, #0
 
 	init_arm_erratum
 
 	print_debug_ch 'b'
-	init_l1cc r9
+	init_l1cc r4
 
 	print_debug_ch 'c'
 	init_l2cc
 
 	print_debug_ch 'd'
-	ldr	r4, =AIPS1_BASE_ADDR
-	ldr	r5, =AIPS2_BASE_ADDR
-	init_aips	r9, r4, r5
+	ldr	r5, =AIPS1_BASE_ADDR
+	ldr	r6, =AIPS2_BASE_ADDR
+	init_aips	r4, r5, r6
 
 	print_debug_ch 'e'
-	ldr	r4, =M4IF_BASE_ADDR
-	init_m4if	r9, r4
+	ldr	r5, =M4IF_BASE_ADDR
+	init_m4if	r4, r5
 
 //	print_debug_ch 'g'
 //	init_disable_ipu r9
 
 	print_debug_ch 'h'
 
-	ldr	r4, =CCM_BASE_ADDR
-	ldr	r5, =PLL1_BASE_ADDR
-	ldr	r6, =PLL2_BASE_ADDR
-	ldr	r7, =PLL3_BASE_ADDR
-	init_clock	r9, r4, r5, r6, r7
+	ldr	r5, =CCM_BASE_ADDR
+	ldr	r6, =PLL1_BASE_ADDR
+	ldr	r7, =PLL2_BASE_ADDR
+	ldr	r8, =PLL3_BASE_ADDR
+	init_clock	r4, r5, r6, r7, r8
 	bl	setup_uart
 
 	print_debug_ch '\n'
-	mov	pc, r8
+	mov	pc, r10
