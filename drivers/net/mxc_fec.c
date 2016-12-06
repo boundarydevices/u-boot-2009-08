@@ -759,8 +759,7 @@ extern void mxc_fec_eth_set_mac_addr(const unsigned char *macaddr)
 	set_hw_mac(fecp, macaddr);
 }
 
-void inline __board_fec_enable_phy(int on) {}
-void board_fec_enable_phy(int on) __attribute__((weak, alias("__board_fec_enable_phy")));
+__attribute__((weak)) void board_fec_enable_phy(int on) {}
 
 int fec_init(struct eth_device *dev, bd_t *bd)
 {
