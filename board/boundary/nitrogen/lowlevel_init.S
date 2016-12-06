@@ -91,11 +91,10 @@
 	/* explicitly disable L2 cache */
 	mrc	15, 0, r0, c1, c0, 1
 	bic	r0, r0, #0x2
-	mcr	15, 0, r0, c1, c0, 1	/* write Auxiliary Control Register */
+	mcr	15, 0, r0, c1, c0, 1	/* Write Auxiliary Control Register */
 
 	/* reconfigure L2 cache aux control reg */
 	mov	r0, #0xC4				/* tag/data RAM */
-	/* disable write allocate, combine, delay */
 	orr	r0, r0, #(1 << 24) |	/* disable write allocate delay */ \
 		(1 << 23) |	/* disable write allocate combine */ \
 		(1 << 22)	/* disable write allocate */
@@ -112,18 +111,22 @@
 	mcr	15, 1, r0, c9, c0, 2
 .endm /* init_l2cc */
 
-/* AIPS setup - Only setup MPROTx registers.
- * The PACR default values are good.*/
-.macro init_aips	rAips1, rAips2
+/* AIPS setup - setup MPROTx and PACR registers. */
+.macro init_aips	r_zero, rAips1, rAips2
 	/*
 	 * Set all MPROTx to be non-bufferable, trusted for R/W,
 	 * not forced to user-mode.
 	 */
-	ldr	r0, =0x77777777
-	str	r0, [\rAips1, #0x0]
-	str	r0, [\rAips1, #0x4]
-	str	r0, [\rAips2, #0x0]
-	str	r0, [\rAips2, #0x4]
+	ldr	r1, =0x77777777
+	str	r1, [\rAips1, #0x0]
+	str	r1, [\rAips1, #0x4]
+	str	\r_zero, [\rAips1, #0x40]
+	str	\r_zero, [\rAips1, #0x44]
+	str	\r_zero, [\rAips1, #0x48]
+	str	\r_zero, [\rAips1, #0x4c]
+	str	\r_zero, [\rAips1, #0x50]
+	str	r1, [\rAips2, #0x0]
+	str	r1, [\rAips2, #0x4]
 	/*
 	 * Clear the on and off peripheral modules Supervisor Protect bit
 	 * for SDMA to access them. Did not change the AIPS control registers
@@ -137,16 +140,16 @@
 	/* VPU and IPU given higher priority (0x4)
 	 * IPU accesses with ID=0x1 given highest priority (=0xA)
 	 */
-	ldr	r0, =0x00000203
-	str	r0, [\rM4if, #0x40]
+	ldr	r1, =0x00000203
+	str	r1, [\rM4if, #0x40]
 
 	str	\r_zero, [\rM4if, #0x44]
 
-	ldr	r0, =0x00120125
-	str	r0, [\rM4if, #0x9C]
+	ldr	r1, =0x00120125
+	str	r1, [\rM4if, #0x9C]
 
-	ldr	r0, =0x001901A3
-	str	r0, [\rM4if, #0x48]
+	ldr	r1, =0x001901A3
+	str	r1, [\rM4if, #0x48]
 #endif
 .endm /* init_m4if */
 
@@ -512,7 +515,7 @@ lowlevel_init:
 	print_debug_ch 'd'
 	ldr	r4, =AIPS1_BASE_ADDR
 	ldr	r5, =AIPS2_BASE_ADDR
-	init_aips	r4, r5
+	init_aips	r9, r4, r5
 
 	print_debug_ch 'e'
 	ldr	r4, =M4IF_BASE_ADDR
