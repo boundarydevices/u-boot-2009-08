@@ -32,13 +32,11 @@
 #endif
 .endm
 
-.macro init_l1cc
-	mov	r0, #0
-	mcr	p15, 0, r0, c8, c7, 0	@ invalidate I + D TLBs
-	mcr	p15, 0, r0, c2, c0, 2	@ TTB control register
+.macro init_l1cc r_zero
+	mcr	p15, 0, \r_zero, c8, c7, 0	@ invalidate I + D TLBs
+	mcr	p15, 0, \r_zero, c2, c0, 2	@ TTB control register
 
-	mov	r0, #0
-	mcr	p15, 2, r0, c0, c0, 0
+	mcr	p15, 2, \r_zero, c0, c0, 0
 	mrc	p15, 1, r0, c0, c0, 0
 
 	ldr	r1, =0x7fff
@@ -496,7 +494,7 @@ lowlevel_init:
 	init_arm_erratum
 
 	print_debug_ch 'b'
-	init_l1cc
+	init_l1cc r9
 
 	print_debug_ch 'c'
 	init_l2cc
