@@ -187,51 +187,6 @@
 	str	\r_zero, [r1, #IPU_CH_TRB_MODE_SEL1]
 .endm
 
-	.equiv	_DP_OP_1000,	DP_OP_1000
-	.equiv	_DP_MFN_1000,	DP_MFN_1000
-	.equiv	_DP_MFD_1000,	DP_MFD_1000
-	.equiv	_DP_CTL_1000,	DP_CTL_1000
-
-	.equiv	_DP_OP_850,	DP_OP_850
-	.equiv	_DP_MFN_850,	DP_MFN_850
-	.equiv	_DP_MFD_850,	DP_MFD_850
-	.equiv	_DP_CTL_850,	DP_CTL_850
-
-	.equiv	_DP_OP_800,	DP_OP_800
-	.equiv	_DP_MFN_800,	DP_MFN_800
-	.equiv	_DP_MFD_800,	DP_MFD_800
-	.equiv	_DP_CTL_800,	DP_CTL_800
-
-	.equiv	_DP_OP_700,	DP_OP_700
-	.equiv	_DP_MFN_700,	DP_MFN_700
-	.equiv	_DP_MFD_700,	DP_MFD_700
-	.equiv	_DP_CTL_700,	DP_CTL_700
-
-	.equiv	_DP_OP_665,	DP_OP_665
-	.equiv	_DP_MFN_665,	DP_MFN_665
-	.equiv	_DP_MFD_665,	DP_MFD_665
-	.equiv	_DP_CTL_665,	DP_CTL_665
-
-	.equiv	_DP_OP_600,	DP_OP_600
-	.equiv	_DP_MFN_600,	DP_MFN_600
-	.equiv	_DP_MFD_600,	DP_MFD_600
-	.equiv	_DP_CTL_600,	DP_CTL_600
-
-	.equiv	_DP_OP_532,	DP_OP_532
-	.equiv	_DP_MFN_532,	DP_MFN_532
-	.equiv	_DP_MFD_532,	DP_MFD_532
-	.equiv	_DP_CTL_532,	DP_CTL_532
-
-	.equiv	_DP_OP_400,	DP_OP_400
-	.equiv	_DP_MFN_400,	DP_MFN_400
-	.equiv	_DP_MFD_400,	DP_MFD_400
-	.equiv	_DP_CTL_400,	DP_CTL_400
-
-	.equiv	_DP_OP_216,	DP_OP_216
-	.equiv	_DP_MFN_216,	DP_MFN_216
-	.equiv	_DP_MFD_216,	DP_MFD_216
-	.equiv	_DP_CTL_216,	DP_CTL_216
-
 .macro pll_op_mfd_mfn r_pll, dp_op, dp_mfd, dp_mfn, dp_ctl
 	mov	r0, #\dp_op
 	str	r0, [\r_pll, #PLL_DP_OP]
@@ -252,9 +207,11 @@
 	beq	1b
 .endm
 
-.macro setup_pll r_pll, freq
-	pll_op_mfd_mfn \r_pll, _DP_OP_\freq, _DP_MFD_\freq, _DP_MFN_\freq, _DP_CTL_\freq
-.endm
+#define setup_pll(pll, freq) \
+		pll_op_mfd_mfn pll, DP_OP_##freq, DP_MFD_##freq, \
+		DP_MFN_##freq, DP_CTL_##freq
+
+#define setup_pll_(pll, freq) setup_pll(pll, freq)
 
 .macro divisor_change_wait r_ccm
 	/* make sure divider effective */
@@ -353,17 +310,17 @@
 	str	r0, [\r_ccm, #CLKCTL_CCSR]
 
 #ifdef CONFIG_MX51_PLL_ERRATA
-	setup_pll	\r_pll1, 864
+	setup_pll(\r_pll1, 864)
 	setup_pll_errata \r_pll1, DP_MFN_800_DIT
 #else
-	setup_pll	\r_pll1, CONFIG_SYS_PLL1_FREQ
+	setup_pll_(\r_pll1, CONFIG_SYS_PLL1_FREQ)
 #endif
 
 	/* Switch ARM back to PLL 1 */
 	str	\r_zero, [\r_ccm, #CLKCTL_CCSR]
 
 #ifdef CONFIG_MX51
-	setup_pll	\r_pll3, 665
+	setup_pll(\r_pll3, 665)
 
 	/* Switch peripheral to PLL 3 */
 	ldr	r0, =0x000010C0
@@ -376,7 +333,7 @@
 	str	r0, [\r_ccm, #CLKCTL_CBCDR]
 	divisor_change_wait \r_ccm
 
-	setup_pll	\r_pll2, 665
+	setup_pll(\r_pll2, 665)
 
 	/* Switch peripheral to PLL2 */
 	/* [25] 1 -> 0 (periph was apm, now pll2) */
@@ -389,7 +346,7 @@
 	str	r0, [\r_ccm, #CLKCTL_CBCMR]
 #endif
 
-	setup_pll	\r_pll3, 216
+	setup_pll(\r_pll3, 216)
 
 	/* Set the platform clock dividers */
 	ldr	r1, =ARM_BASE_ADDR
