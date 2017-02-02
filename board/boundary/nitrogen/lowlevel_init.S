@@ -237,6 +237,14 @@
 	bne	1b
 .endm
 
+#ifndef CONFIG_SYS_PLL1_FREQ
+#define CONFIG_SYS_PLL1_FREQ 800
+#endif
+
+#ifndef CONFIG_SYS_DDR_CLKSEL
+#define CONFIG_SYS_DDR_CLKSEL 0
+#endif
+
 #define setup_pll(pll, freq) \
 		pll_op_mfd_mfn pll, DP_OP_##freq, DP_MFD_##freq, \
 		DP_MFN_##freq, DP_CTL_##freq
@@ -281,20 +289,23 @@
 	str	r1, [\r_ccm, #CLKCTL_CCGR4]
 	ldr	r1, =0x00FFF030
 	str	r1, [\r_ccm, #CLKCTL_CCGR5]
-#ifdef CONFIG_MX51
+#ifdef CONFIG_MX53
+	ldr	r1, =0x0F00030F
+#else
 	ldr	r1, =0x00000300
+#endif
 	str	r1, [\r_ccm, #CLKCTL_CCGR6]
+#ifdef CONFIG_MX53
+	str	\r_zero, [\r_ccm, #CLKCTL_CCGR7]
+#endif
 
+#ifdef CONFIG_MX51
 	/* Make sure to switch the DDR away from PLL 1 */
 	/* keep the initial ddr podf value */
 	ldr	r2, [\r_ccm, #CLKCTL_CBCDR]
 	ldr	r3, =0x19239145
 	str	r3, [\r_ccm, #CLKCTL_CBCDR]
 	divisor_change_wait \r_ccm
-#else
-	ldr	r1, =0x0F00030F
-	str	r1, [\r_ccm, #CLKCTL_CCGR6]
-	str	\r_zero, [\r_ccm, #CLKCTL_CCGR7]
 #endif
 
 	/* Switch ARM to step clock (clock source 4) */
@@ -319,9 +330,6 @@
 	/* Switch ARM back to PLL 1 */
 	str	\r_zero, [\r_ccm, #CLKCTL_CCSR]
 
-#ifndef CONFIG_SYS_DDR_CLKSEL
-#define CONFIG_SYS_DDR_CLKSEL 0
-#endif
 #ifdef CONFIG_MX51
 	setup_pll(\r_pll3, 665)
 
