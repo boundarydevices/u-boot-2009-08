@@ -81,7 +81,7 @@
 .endm
 
 .macro Big2CC inst,dest,val
-	.set __nVal,(\val)
+	.set __nVal,(\val)&0xffffffff
 	.if (__nVal)<>0
 		NextSetMask __nVal
 		\inst	\dest,\dest,#(__nVal)&(__nMask)
@@ -90,7 +90,7 @@
 .endm
 
 .macro BigAnd2CC cc,dest,val
-	.set __nVal,(\val)
+	.set __nVal,(\val)&0xffffffff
 	.if (~__nVal)<>0
 		NextSetMask __nVal
 		.if (((__nVal)&~(__nMask))<>0)
@@ -103,8 +103,7 @@
 
 ///////////////////////////////////////////////////////
 .macro	BigMovCC  cc,dest, val
-#if 0
-	.set __nVal,(\val)
+	.set __nVal,(\val)&0xffffffff
 	NextSetMask ~__nVal
 	.if (((~(__nVal))&~(__nMask)) > 0x255)
 		NextSetMask __nVal
@@ -126,15 +125,11 @@
 		mvn\cc	\dest,#(~(__nVal))&(__nMask)	//complement of complement is original
 		Big2CC bic\cc,\dest,(~(__nVal))&~(__nMask)
 	.endif
-#else
-	ldr\cc	\dest,=#(\val)
-#endif
-
 .endm
 
 
 .macro	BigAddCC cc,dest,src,val
-	.set __nVal,(\val)
+	.set __nVal,(\val)&0xffffffff
 	.if (__nVal)<>0
 		NextSetMask -__nVal
 		.if (((-(__nVal))&~(__nMask)) > 0x255)
